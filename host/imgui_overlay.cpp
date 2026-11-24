@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
@@ -201,6 +202,256 @@ void draw_fps_badge(const SDL_Rect &safe)
     ImGui::End();
 }
 
+const ImVec4 k_type_colors[18] = {
+    ImVec4(0.67f, 0.64f, 0.58f, 1.0f), /* Normal */
+    ImVec4(0.75f, 0.19f, 0.16f, 1.0f), /* Fighting */
+    ImVec4(0.66f, 0.56f, 0.94f, 1.0f), /* Flying */
+    ImVec4(0.63f, 0.25f, 0.63f, 1.0f), /* Poison */
+    ImVec4(0.88f, 0.75f, 0.41f, 1.0f), /* Ground */
+    ImVec4(0.72f, 0.63f, 0.22f, 1.0f), /* Rock */
+    ImVec4(0.66f, 0.72f, 0.13f, 1.0f), /* Bug */
+    ImVec4(0.44f, 0.35f, 0.60f, 1.0f), /* Ghost */
+    ImVec4(0.72f, 0.72f, 0.82f, 1.0f), /* Steel */
+    ImVec4(0.96f, 0.32f, 0.19f, 1.0f), /* Fire */
+    ImVec4(0.41f, 0.56f, 0.94f, 1.0f), /* Water */
+    ImVec4(0.47f, 0.78f, 0.31f, 1.0f), /* Grass */
+    ImVec4(0.97f, 0.82f, 0.19f, 1.0f), /* Electric */
+    ImVec4(0.97f, 0.35f, 0.53f, 1.0f), /* Psychic */
+    ImVec4(0.60f, 0.85f, 0.85f, 1.0f), /* Ice */
+    ImVec4(0.44f, 0.22f, 0.97f, 1.0f), /* Dragon */
+    ImVec4(0.44f, 0.35f, 0.28f, 1.0f), /* Dark */
+    ImVec4(0.32f, 0.32f, 0.32f, 1.0f)  /* ??? */
+};
+
+void format_status_badge(uint8_t status, const char **out_label, ImVec4 *out_col)
+{
+    /* Gen 5 party status bitmask: 0x07 sleep turns, 0x08 PSN, 0x10 BRN, 0x20 FRZ, 0x40 PAR, 0x80 TOX */
+    if ((status & 0x07u) != 0u) {
+        *out_label = "SLP";
+        *out_col = ImVec4(0.65f, 0.65f, 0.72f, 1.0f);
+    } else if ((status & 0x80u) != 0u) {
+        *out_label = "TOX";
+        *out_col = ImVec4(0.78f, 0.30f, 0.78f, 1.0f);
+    } else if ((status & 0x08u) != 0u) {
+        *out_label = "PSN";
+        *out_col = ImVec4(0.72f, 0.34f, 0.72f, 1.0f);
+    } else if ((status & 0x10u) != 0u) {
+        *out_label = "BRN";
+        *out_col = ImVec4(0.94f, 0.42f, 0.22f, 1.0f);
+    } else if ((status & 0x20u) != 0u) {
+        *out_label = "FRZ";
+        *out_col = ImVec4(0.38f, 0.82f, 0.94f, 1.0f);
+    } else if ((status & 0x40u) != 0u) {
+        *out_label = "PAR";
+        *out_col = ImVec4(0.95f, 0.80f, 0.20f, 1.0f);
+    } else {
+        *out_label = nullptr;
+    }
+}
+
+void draw_gear_tab(void)
+{
+    static int g_confirm_restore_slot = 0;
+    const PokebwGearSnapshot *gear = host_gear_get();
+    static const char *const k_season_names[] = { "Spring", "Summer", "Autumn", "Winter" };
+    static const ImVec4 k_season_colors[] = {
+        ImVec4(0.45f, 0.88f, 0.52f, 1.0f),
+        ImVec4(0.96f, 0.78f, 0.26f, 1.0f),
+        ImVec4(0.92f, 0.50f, 0.24f, 1.0f),
+        ImVec4(0.55f, 0.82f, 0.98f, 1.0f)
+    };
+    static const char *const k_hab_names[POKEBW_GEAR_HABITATS] = {
+        "Tall Grass / Cave",
+        "Dark Grass",
+        "Phenomena (Shaking / Dust)",
+        "Surfing",
+        "Rippling Water",
+        "Fishing",
+        "Rippling Fishing"
+    };
+
+    ImGui::Spacing();
+
+    if (ImGui::CollapsingHeader("Party", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (gear->valid == 0u || gear->party_count == 0u) {
+            ImGui::TextDisabled("Enter the overworld to sync party data.");
+        } else {
+            for (int p = 0; p < (int)gear->party_count && p < POKEBW_GEAR_MAX_PARTY; p++) {
+                const PokebwGearMon &mon = gear->party[p];
+                ImGui::PushID(p);
+                ImGui::BeginGroup();
+
+                if (mon.is_egg) {
+                    ImGui::Text("Egg");
+                } else {
+                    if (std::strcmp(mon.name, mon.species_name) != 0) {
+                        ImGui::Text("%s (%s)  Lv.%u", mon.name, mon.species_name, (unsigned)mon.level);
+                    } else {
+                        ImGui::Text("%s  Lv.%u", mon.name, (unsigned)mon.level);
+                    }
+                    const char *st_label = nullptr;
+                    ImVec4 st_col(1.0f, 1.0f, 1.0f, 1.0f);
+                    if (mon.hp == 0u) {
+                        st_label = "FNT";
+                        st_col = ImVec4(0.88f, 0.22f, 0.26f, 1.0f);
+                    } else {
+                        format_status_badge(mon.status, &st_label, &st_col);
+                    }
+                    if (st_label != nullptr) {
+                        ImGui::SameLine();
+                        ImGui::TextColored(st_col, "[%s]", st_label);
+                    }
+
+                    float frac = mon.max_hp > 0u
+                                     ? std::clamp(static_cast<float>(mon.hp) / static_cast<float>(mon.max_hp), 0.0f, 1.0f)
+                                     : 0.0f;
+                    ImVec4 hp_col = frac > 0.5f
+                                        ? ImVec4(0.24f, 0.80f, 0.40f, 1.0f)
+                                        : (frac > 0.2f ? ImVec4(0.92f, 0.78f, 0.22f, 1.0f)
+                                                       : ImVec4(0.92f, 0.28f, 0.24f, 1.0f));
+                    char hp_buf[32];
+                    std::snprintf(hp_buf, sizeof(hp_buf), "HP %u/%u", (unsigned)mon.hp, (unsigned)mon.max_hp);
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hp_col);
+                    ImGui::ProgressBar(frac, ImVec2(-1.0f, 0.0f), hp_buf);
+                    ImGui::PopStyleColor();
+
+                    if (mon.move_count > 0u && ImGui::BeginTable("##moves", 2, ImGuiTableFlags_SizingStretchSame)) {
+                        for (int m = 0; m < (int)mon.move_count && m < POKEBW_GEAR_MAX_MOVES; m++) {
+                            const PokebwGearMove &mv = mon.moves[m];
+                            int ti = mv.type < 18u ? (int)mv.type : 17;
+                            ImVec4 tc = k_type_colors[ti];
+                            ImVec4 fill(tc.x * 0.42f, tc.y * 0.42f, tc.z * 0.42f, 0.95f);
+                            ImVec4 border(tc.x * 0.88f, tc.y * 0.88f, tc.z * 0.88f, 1.0f);
+
+                            ImGui::TableNextColumn();
+                            ImGui::PushStyleColor(ImGuiCol_Button, fill);
+                            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, fill);
+                            ImGui::PushStyleColor(ImGuiCol_ButtonActive, fill);
+                            ImGui::PushStyleColor(ImGuiCol_Border, border);
+                            char mv_buf[48];
+                            std::snprintf(mv_buf, sizeof(mv_buf), "%s  %u/%u",
+                                          mv.name, (unsigned)mv.pp, (unsigned)mv.max_pp);
+                            ImGui::Button(mv_buf, ImVec2(-1.0f, 0.0f));
+                            ImGui::PopStyleColor(4);
+                        }
+                        ImGui::EndTable();
+                    }
+                }
+                ImGui::EndGroup();
+                if (p + 1 < (int)gear->party_count) {
+                    ImGui::Separator();
+                }
+                ImGui::PopID();
+            }
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Route Radar", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (gear->valid == 0u) {
+            ImGui::TextDisabled("Enter the overworld to scan Unova habitats.");
+        } else {
+            int season_idx = (int)(gear->season & 3u);
+            ImGui::Text("%s", gear->zone_name);
+            ImGui::SameLine();
+            ImGui::TextColored(k_season_colors[season_idx], "[%s]", k_season_names[season_idx]);
+            if (gear->catch_em_all_active != 0u) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.40f, 0.88f, 0.96f, 1.0f), "[Catch 'Em All]");
+            }
+
+            if (gear->has_encounters == 0u) {
+                ImGui::TextDisabled("No wild encounters in this area.");
+            } else {
+                for (int h = 0; h < POKEBW_GEAR_HABITATS; h++) {
+                    const PokebwGearHabitat &hab = gear->habitats[h];
+                    if (hab.count == 0u) {
+                        continue;
+                    }
+                    ImGui::Spacing();
+                    ImGui::TextColored(ImVec4(0.76f, 0.86f, 1.00f, 1.0f), "%s", k_hab_names[h]);
+                    if (ImGui::BeginTable(k_hab_names[h], 4,
+                                          ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+                        ImGui::TableSetupColumn("Dex", ImGuiTableColumnFlags_WidthFixed);
+                        ImGui::TableSetupColumn("Species", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("Level", ImGuiTableColumnFlags_WidthFixed);
+                        ImGui::TableSetupColumn("Rate", ImGuiTableColumnFlags_WidthFixed);
+                        for (int e = 0; e < (int)hab.count && e < POKEBW_GEAR_MAX_ENC; e++) {
+                            const PokebwGearEncEntry &en = hab.entries[e];
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn();
+                            if (en.dex_state == 2u) {
+                                ImGui::TextColored(ImVec4(0.35f, 0.90f, 0.45f, 1.0f), "[Caught]");
+                            } else if (en.dex_state == 1u) {
+                                ImGui::TextColored(ImVec4(0.95f, 0.78f, 0.25f, 1.0f), "[Seen]");
+                            } else {
+                                ImGui::TextColored(ImVec4(0.40f, 0.85f, 0.98f, 1.0f), "[New]");
+                            }
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%s", en.name);
+                            ImGui::TableNextColumn();
+                            if (en.min_lv == en.max_lv) {
+                                ImGui::Text("Lv.%u", (unsigned)en.min_lv);
+                            } else {
+                                ImGui::Text("Lv.%u-%u", (unsigned)en.min_lv, (unsigned)en.max_lv);
+                            }
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%u%%", (unsigned)en.chance_pct);
+                        }
+                        ImGui::EndTable();
+                    }
+                }
+            }
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Save Backup Slots")) {
+        int active_slot = host_gear_active_save_slot();
+        ImGui::Text("Active eidos Save: Slot %d / 8", active_slot);
+        ImGui::TextDisabled("Use Title Screen Continue (< Left / Right >) to switch slots 1-8.");
+        ImGui::Spacing();
+
+        for (int s = 1; s <= 3; s++) {
+            PokebwBackupSlotInfo info;
+            host_backup_slot_info(s, &info);
+            ImGui::PushID(100 + s);
+            if (info.exists) {
+                ImGui::Text("Backup %d: %s (%.0f KiB)", s, info.timestamp,
+                            static_cast<double>(info.size_bytes) / 1024.0);
+            } else {
+                ImGui::TextDisabled("Backup %d: Empty", s);
+            }
+            if (ImGui::Button("Backup")) {
+                host_backup_slot_save(s);
+                g_confirm_restore_slot = 0;
+            }
+            ImGui::SameLine();
+            if (!info.exists) {
+                ImGui::BeginDisabled();
+            }
+            if (g_confirm_restore_slot == s) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.75f, 0.20f, 0.20f, 1.0f));
+                if (ImGui::Button("Confirm Restore?")) {
+                    host_backup_slot_restore(s);
+                    g_confirm_restore_slot = 0;
+                }
+                ImGui::PopStyleColor();
+            } else {
+                if (ImGui::Button("Restore")) {
+                    g_confirm_restore_slot = s;
+                }
+            }
+            if (!info.exists) {
+                ImGui::EndDisabled();
+            }
+            ImGui::PopID();
+        }
+        if (host_backup_status()[0] != '\0') {
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", host_backup_status());
+        }
+    }
+}
+
 void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
 {
     float win_w = std::min(static_cast<float>(safe.w) * 0.92f, 920.0f);
@@ -220,6 +471,11 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
         float footer_h = ImGui::GetFrameHeightWithSpacing() * 2.2f;
         if (ImGui::BeginChild("##tabs_scroll", ImVec2(0.0f, -footer_h), false)) {
             if (ImGui::BeginTabBar("##pokebw_tabs")) {
+                if (ImGui::BeginTabItem("Gear")) {
+                    draw_gear_tab();
+                    ImGui::EndTabItem();
+                }
+
                 if (ImGui::BeginTabItem("Controls")) {
                     ImGui::Spacing();
                     setting_checkbox("Show On-Screen Controls", nullptr, &cfg->touch_visible);

@@ -6,6 +6,8 @@
 #ifndef EIDOS_HOST_POKEBW_SETTINGS_H
 #define EIDOS_HOST_POKEBW_SETTINGS_H
 
+#include "pokebw_gear_state.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -69,6 +71,21 @@ const char *host_save_dir_status(void);
 void host_save_dir_set_status(const char *msg);
 void host_pick_save_dir_begin(void);
 void host_pick_save_dir_pump(void);
+
+/* Phase 2.3: Live Gear telemetry cache & Save Backup Slots. */
+typedef struct {
+    int exists;
+    unsigned long long size_bytes;
+    char timestamp[32];
+} PokebwBackupSlotInfo;
+
+void host_gear_update(const PokebwGearSnapshot *snap);
+const PokebwGearSnapshot *host_gear_get(void);
+int  host_gear_active_save_slot(void);
+int  host_backup_slot_info(int slot, PokebwBackupSlotInfo *out);
+int  host_backup_slot_save(int slot);
+int  host_backup_slot_restore(int slot);
+const char *host_backup_status(void);
 
 #ifdef __cplusplus
 }

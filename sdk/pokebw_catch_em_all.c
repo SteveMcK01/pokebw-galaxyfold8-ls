@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "pokebw_gear.h"
 #include "pokebw_settings_ids.h"
 
 /* Matches EncountSlot & EncountData in aletheia/src/game/ov021/field_encount_types.h. */
@@ -302,8 +303,11 @@ int __wrap_ov010_FIELD_ENCOUNT_ST_LoadEncountData(
 {
     int ok = __real_ov010_FIELD_ENCOUNT_ST_LoadEncountData(row, arc, zoneId, seasonIndex);
 
-    if (ok != 0 && row != NULL && bw_pokebw_setting(POKEBW_SET_CATCH_EM_ALL)) {
-        pokebw_apply_catch_em_all(row, zoneId);
+    if (ok != 0 && row != NULL) {
+        if (bw_pokebw_setting(POKEBW_SET_CATCH_EM_ALL)) {
+            pokebw_apply_catch_em_all(row, zoneId);
+        }
+        pokebw_gear_on_encount_load(row, zoneId, seasonIndex);
     }
     return ok;
 }

@@ -25,7 +25,7 @@
 ### Phase 2: Fast-Follow QoL, Battle HUD & Gear Radar (Low -> Medium)
 1. **QoL & Cheats (Done):** Instant Text and Fast/Seamless Map Transitions are wired from `eidos`; added Hard Level Cap (Unova badge caps), No Random Encounters, Always Bite When Fishing, and Season & Clock Switcher.
 2. ~~**Gen 5 Battle HUD Enhancements (Low-Medium):**~~ **Done (`bw-fold`)**: Added Gen 5 `4x`/`2x`/`1/2`/`1/4`/`0x` move-card effectiveness pills directly in `engine/ui/recipe_battle.c` (Teravolt/Turboblaze/Mold Breaker, Scrappy, and defender ability-aware, Illusion-safe), toggled via `Battle Effectiveness Pills` (`POKEBW_SET_TYPE_EFFECTIVENESS`) in the ImGui `QoL` tab.
-3. **Gear Companion & Unova Route Radar (Medium):** Party move-pill cards, save slots, and live encounter radar supporting Seasons, Dark Grass, and Phenomena.
+3. **Gear Companion & Unova Route Radar (Done):** Added the **Gear** tab in `host/imgui_overlay.cpp` backed by live `gear_push` telemetry (`sdk/pokebw_gear.c`, `sdk/pokebw_gear_state.h`, `host/main.c`, `host/pokebw_settings.c`): displays party move-pill cards, save backup slots (`1..3` alongside `eidos` slots `1..8`), and the live Unova Route Radar (Seasons, Dark Grass, Phenomena, Surfing/Fishing, Pokédex Caught/Seen/New status).
 
 ### Phase 3: 649-Species Sprites, Following Pokémon & Overworld Wilds (Medium-High -> High)
 1. **649-Species Sprite Archive (Medium-High):** Python build pipeline packing normal + shiny + form `NSBTX` sprites into a built-in `eidos` NARC VFS mod pack (`sdk/vfs_narc.c`).

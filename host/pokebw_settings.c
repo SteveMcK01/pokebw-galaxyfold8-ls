@@ -9,6 +9,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#if defined(_WIN32)
+#include <direct.h>
+#endif
 
 static PokebwSettings g_settings;
 static char g_settings_path[1024] = "pokebw_settings.ini";
@@ -22,6 +27,8 @@ static int g_pc_last_status = 0;
 static char g_default_save_dir[1024] = "";
 static int g_save_dir_dirty = 0;
 static char g_save_dir_status[160] = "";
+static PokebwGearSnapshot g_gear_snap;
+static char g_backup_status[160] = "";
 
 static void apply_control_defaults(PokebwSettings *s)
 {
@@ -535,4 +542,171 @@ const char *host_save_dir_status(void)
 void host_save_dir_set_status(const char *msg)
 {
     snprintf(g_save_dir_status, sizeof(g_save_dir_status), "%s", msg != NULL ? msg : "");
+}
+
+void host_gear_update(const PokebwGearSnapshot *snap)
+{
+    if (snap == NULL) {
+        return;
+    }
+    g_gear_snap = *snap;
+}
+
+const PokebwGearSnapshot *host_gear_get(void)
+{
+    return &g_gear_snap;
+}
+
+int host_gear_active_save_slot(void)
+{
+    char slot_path[1152];
+    FILE *f;
+    int slot = 1;
+
+    if (g_gear_snap.valid != 0u &&
+        g_gear_snap.active_save_slot >= 1u &&
+        g_gear_snap.active_save_slot <= 8u) {
+        return (int)g_gear_snap.active_save_slot;
+    }
+    snprintf(slot_path, sizeof(slot_path), "%s/slot.txt", host_settings_effective_save_dir());
+    f = fopen(slot_path, "rb");
+    if (f != NULL) {
+        if (fscanf(f, "%d", &slot) != 1 || slot < 1 || slot > 8) {
+            slot = 1;
+        }
+        fclose(f);
+    }
+    return slot;
+}
+
+static void make_dir_if_needed(const char *dir)
+{
+#if defined(_WIN32)
+    (void)_mkdir(dir);
+#else
+    (void)mkdir(dir, 0755);
+#endif
+}
+
+static int active_save_file_path(char *out, size_t out_sz)
+{
+    const char *eff = host_settings_effective_save_dir();
+    int slot = host_gear_active_save_slot();
+    int n;
+
+    if (slot <= 1) {
+        n = snprintf(out, out_sz, "%s/pokeblack.sav", eff);
+    } else {
+        char slots_dir[1152];
+        snprintf(slots_dir, sizeof(slots_dir), "%s/slots", eff);
+        make_dir_if_needed(slots_dir);
+        n = snprintf(out, out_sz, "%s/slots/save%d.sav", eff, slot);
+    }
+    return (n < 0 || (size_t)n >= out_sz) ? -1 : 0;
+}
+
+static int backup_slot_path(int slot, char *out, size_t out_sz, int create_dir)
+{
+    const char *eff = host_settings_effective_save_dir();
+    char backup_dir[1152];
+    int n;
+
+    if (slot < 1 || slot > 3) {
+        return -1;
+    }
+    if (create_dir) {
+        snprintf(backup_dir, sizeof(backup_dir), "%s/backups", eff);
+        make_dir_if_needed(backup_dir);
+    }
+    n = snprintf(out, out_sz, "%s/backups/backup_%d.sav", eff, slot);
+    return (n < 0 || (size_t)n >= out_sz) ? -1 : 0;
+}
+
+int host_backup_slot_info(int slot, PokebwBackupSlotInfo *out)
+{
+    char path[1152];
+    struct stat st;
+    struct tm tm_buf;
+
+    if (out == NULL) {
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    if (backup_slot_path(slot, path, sizeof(path), 0) != 0) {
+        return -1;
+    }
+    if (stat(path, &st) != 0 || st.st_size <= 0) {
+        return 0;
+    }
+    out->exists = 1;
+    out->size_bytes = (unsigned long long)st.st_size;
+#if defined(_WIN32)
+    if (localtime_s(&tm_buf, &st.st_mtime) == 0) {
+        strftime(out->timestamp, sizeof(out->timestamp), "%Y-%m-%d %H:%M", &tm_buf);
+    } else {
+        snprintf(out->timestamp, sizeof(out->timestamp), "Saved");
+    }
+#else
+    if (localtime_r(&st.st_mtime, &tm_buf) != NULL) {
+        strftime(out->timestamp, sizeof(out->timestamp), "%Y-%m-%d %H:%M", &tm_buf);
+    } else {
+        snprintf(out->timestamp, sizeof(out->timestamp), "Saved");
+    }
+#endif
+    return 0;
+}
+
+int host_backup_slot_save(int slot)
+{
+    char src[1152];
+    char dst[1152];
+
+    if (active_save_file_path(src, sizeof(src)) != 0 ||
+        backup_slot_path(slot, dst, sizeof(dst), 1) != 0) {
+        snprintf(g_backup_status, sizeof(g_backup_status), "Invalid backup slot %d.", slot);
+        return -1;
+    }
+    if (!file_exists(src)) {
+        snprintf(g_backup_status, sizeof(g_backup_status),
+                 "No active save file found to back up yet (save in-game first).");
+        return -1;
+    }
+    if (copy_file_atomic(src, dst) != 0) {
+        snprintf(g_backup_status, sizeof(g_backup_status),
+                 "Failed to write Backup Slot %d.", slot);
+        return -1;
+    }
+    snprintf(g_backup_status, sizeof(g_backup_status),
+             "Backed up Slot %d/8 to Backup %d.", host_gear_active_save_slot(), slot);
+    return 0;
+}
+
+int host_backup_slot_restore(int slot)
+{
+    char src[1152];
+    char dst[1152];
+
+    if (backup_slot_path(slot, src, sizeof(src), 0) != 0 ||
+        active_save_file_path(dst, sizeof(dst)) != 0) {
+        snprintf(g_backup_status, sizeof(g_backup_status), "Invalid backup slot %d.", slot);
+        return -1;
+    }
+    if (!file_exists(src)) {
+        snprintf(g_backup_status, sizeof(g_backup_status), "Backup %d is empty.", slot);
+        return -1;
+    }
+    if (copy_file_atomic(src, dst) != 0) {
+        snprintf(g_backup_status, sizeof(g_backup_status),
+                 "Failed to restore Backup %d.", slot);
+        return -1;
+    }
+    snprintf(g_backup_status, sizeof(g_backup_status),
+             "Restored Backup %d into Save Slot %d/8. Restart or reload save from Title.",
+             slot, host_gear_active_save_slot());
+    return 0;
+}
+
+const char *host_backup_status(void)
+{
+    return g_backup_status;
 }

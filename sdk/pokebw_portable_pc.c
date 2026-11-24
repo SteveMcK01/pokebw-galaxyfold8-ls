@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "pokebw_gear.h"
 #include "pokebw_settings_ids.h"
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -267,6 +268,7 @@ void *__wrap_ov021_FIELD_EVENT_CHECK_RunGrid(void *gameSystem, void *fieldMapArg
     if (ev != NULL) {
         return ev;
     }
+    pokebw_gear_on_field_tick(gameSystem, fieldMapArg);
     return pokebw_try_open_pc(gameSystem, fieldMapArg, 0);
 }
 
@@ -276,5 +278,6 @@ void *__wrap_ov021_FIELD_EVENT_CHECK_RunRail(void *gameSystem, void *fieldMapArg
     if (ev != NULL) {
         return ev;
     }
+    pokebw_gear_on_field_tick(gameSystem, fieldMapArg);
     return pokebw_try_open_pc(gameSystem, fieldMapArg, 1);
 }

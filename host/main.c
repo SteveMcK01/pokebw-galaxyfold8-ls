@@ -297,6 +297,15 @@ u32 w2c_eidos_save_dir_poll(struct w2c_eidos *e, u32 out, u32 n)
     return 1;
 }
 
+void w2c_eidos_gear_push(struct w2c_eidos *e, u32 data, u32 size)
+{
+    (void)e;
+    if (size != (u32)sizeof(PokebwGearSnapshot)) {
+        return;
+    }
+    host_gear_update((const PokebwGearSnapshot *)host_ptr(data, size));
+}
+
 /* A trap: the native frames, as the executable's own addresses, for
  * addr2line (the translated functions carry the module's names). */
 void host_trap(wasm_rt_trap_t code)

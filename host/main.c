@@ -111,6 +111,18 @@ u32 w2c_eidos_setting_get(struct w2c_eidos *e, u32 id)
     return (u32)host_settings_get_by_id((int)id);
 }
 
+void w2c_eidos_eidos_opt_sync(struct w2c_eidos *e, u32 id, u32 value)
+{
+    (void)e;
+    host_eidos_opt_from_wasm((int)id, (int)value);
+}
+
+u32 w2c_eidos_eidos_opt_poll(struct w2c_eidos *e)
+{
+    (void)e;
+    return (u32)host_eidos_opt_poll_pending();
+}
+
 /* The heap's lock (sdk/wasm_heap.c): one recursive mutex for the module's
  * malloc, from the module's threads and the host's alike.  malloc is the
  * only code that grows the memory, so the lock also keeps a worker's copy

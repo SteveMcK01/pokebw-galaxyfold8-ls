@@ -76,6 +76,8 @@ BW_WASM_IMPORT(heap_unlock) void bw_host_heap_unlock(void);
 BW_WASM_IMPORT(console_open) void bw_host_console_open(void);
 /* PokeBW Fold persistent settings (host/pokebw_settings.c, sdk/pokebw_settings_ids.h). */
 BW_WASM_IMPORT(setting_get) int bw_host_setting_get(int id);
+BW_WASM_IMPORT(eidos_opt_sync) void bw_host_eidos_opt_sync(int id, int value);
+BW_WASM_IMPORT(eidos_opt_poll) unsigned bw_host_eidos_opt_poll(void);
 
 /* TCP sockets for the relay (sdk/mod_net.c): the host's own, all
  * non-blocking, named by small numbers.  sock_connect: 0 connected, 1 in

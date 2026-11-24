@@ -9,26 +9,26 @@
 
 ## 2. Phased Feature Roadmap (Priority First, Easiest -> Hardest)
 
-### Phase 0: Foundation & Android CI (Low)
+### Phase 0: Foundation & Android CI (Done)
 1. Fork `eidos` + `aletheia`, establish `AGENTS.md` and `BW_PORT_PLAN.md`.
-2. Configure `.github/workflows/build_android.yml` (`arm64-v8a` APK, `VERSION_CODE=$((9200000 + RUN_NUMBER))`).
-3. Add Dear ImGui overlay + persistent JSON/INI `Settings` config over SDL3.
+2. Configure `.github/workflows/build_android.yml` (`arm64-v8a` APK, `VERSION_CODE=$((9200000 + RUN_NUMBER))`, persistent release signing).
+3. Add Dear ImGui overlay + persistent INI settings (`pokebw_settings.ini`) over SDL3 + GLES 3.0.
 
 ### Phase 1: Top-Priority Features (Trivial -> Medium)
-1. **Trade Evolution Fixes (Trivial):** Lv. 36/37+ for pure trade evolutions; level-up with held item for item-trade evolutions; party-counterpart/Lv. 36+ for Karrablast & Shelmet.
-2. **Modern EXP Share (Low):** Gen 6+ party-wide EXP (100% participants, 50% bench), ported from Platinum's `pokebw2` patch.
-3. **HM Without Teaching / HM Freedom (Low-Medium):** Use Cut, Fly, Surf, Strength, Waterfall, Dive, and Flash from any compatible party member without occupying a moveslot (optional badge bypass).
-4. **Gotta Catch 'Em All! Mode (Low-Medium):** Merge Black/White exclusives, inject Gens 1-4 National Dex species into Unova routes/phenomena, and enable built-in Victini, Zorua, and Zoroark events.
-5. **Full-Screen Foldable Mode + Floating PiP (Medium):** Full-screen 60 FPS widescreen Engine A + scalable, movable rounded-bezel PiP for Engine B with touch remapping and quick hide/show toggle.
-6. **Portable PC Box Access / PC Anywhere (Medium):** Launch Unova `BoxApp` or Gear quick-swap anywhere with cutscene/Elite Four/bridge lock guardrails.
+1. **Trade Evolution Fixes (Done):** Lv. 36/37+ for pure trade evolutions; level-up with held item for item-trade evolutions; party-counterpart/Lv. 36+ for Karrablast & Shelmet.
+2. **Modern EXP Share (Done):** Gen 6+ party-wide EXP (100% participants, 50% bench) with Gen 5 scaling and EV yields preserved.
+3. **HM Without Teaching / HM Freedom (Done):** Use Cut, Fly, Surf, Strength, Waterfall, Dive, and Flash from any compatible party member without occupying a moveslot (plus optional badge bypass).
+4. **Gotta Catch 'Em All! Mode (Done):** Merge Black/White exclusives, inject Gens 1-4 National Dex species into Unova routes/phenomena, and enable built-in Victini, Zorua, Zoroark, Keldeo, Meloetta, Genesect, and opposite-legendary encounters.
+5. **Native `eidos` One-Screen Mode + Unified ImGui Settings Bridge (Done):** Uses `eidos`'s built-in aspect-adaptive widescreen 3D (`--layout one`), 15 one-screen UI recipes, and on-demand `C-GEAR` sheet instead of a competing PiP; exposes `eidos` layout, graphics, audio, and QoL options live inside our ImGui overlay.
+6. **Portable PC Box Access / PC Anywhere (Next — Medium):** Launch Unova `BoxApp` or Gear quick-swap anywhere with cutscene/Elite Four/bridge lock guardrails (renders natively in `eidos`'s one-screen PC recipe).
 
-### Phase 2: Fast-Follow QoL, Touch Battle HUD & Gear Radar (Low -> Medium)
-1. **QoL & Cheats (Low):** Universal TM/HM compatibility, Hard Level Cap, No Random Encounters, Always Bite When Fishing, Instant Text, Season & Clock switcher.
-2. **Gen 5 Touch Battle HUD (Medium):** Port 2x2 Action/Move/Target cards (with Triple & Rotation Battle target support, Teravolt/Turboblaze effectiveness pills, YES/NO cards, and Poké Ball carousel).
+### Phase 2: Fast-Follow QoL, Battle HUD & Gear Radar (Low -> Medium)
+1. **QoL & Cheats (Low):** Instant Text and Fast/Seamless Map Transitions are already provided by `eidos` and wired into our ImGui menu; remaining items are Universal TM/HM compatibility, Hard Level Cap, No Random Encounters, Always Bite When Fishing, and Season & Clock switcher.
+2. **Gen 5 Battle HUD Enhancements (Low-Medium):** `eidos`'s `engine/ui/recipe_battle.c` already provides the full one-screen touch Battle HUD (Action/Move/Target cards, real-map backdrops, move colors, battle Bag/Party); focus on adding live type-effectiveness pills (`2x` / `4x` / `0.5x` / `0x`, Teravolt/Turboblaze-aware) directly into `recipe_battle.c` without conflicting with `eidos`.
 3. **Gear Companion & Unova Route Radar (Medium):** Party move-pill cards, save slots, and live encounter radar supporting Seasons, Dark Grass, and Phenomena.
 
 ### Phase 3: 649-Species Sprites, Following Pokémon & Overworld Wilds (Medium-High -> High)
-1. **649-Species Sprite Archive (Medium-High):** Python build pipeline packing normal + shiny + form `NSBTX` sprites into a built-in `eidos` mod pack.
+1. **649-Species Sprite Archive (Medium-High):** Python build pipeline packing normal + shiny + form `NSBTX` sprites into a built-in `eidos` NARC VFS mod pack (`sdk/vfs_narc.c`).
 2. **Native C Following Pokémon (High):** `FieldPlayer` C follower controller handling Unova curved cameras, 3D bridges, auto-hide during `ScriptContext` locks, and leak-free task cleanup.
 3. **Overworld Wild Pokémon (High):** Visible roaming grass/cave/water spawns (`1-6` density, live shiny visuals, season-aware tables, touch encounters).
-4. **64-Bit Campaign Audit & Link Play (High):** Full Unova campaign pointer audit and wireless battles/trades.
+4. **Android Link Play Polish (Medium):** 32-bit DS pointer safety is already guaranteed by the `wasm32` -> `wasm2c` pipeline, and wireless Link Play / co-op is already implemented in `eidos` over `metaxy`; validate and polish Android Link Play flows.

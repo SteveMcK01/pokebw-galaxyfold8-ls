@@ -31,6 +31,24 @@
 #include "settings.h"
 #include "ui_lang.h"
 
+#if defined(__wasm__)
+#include "wasm_host.h"
+#include "pokebw_settings_ids.h"
+
+_Static_assert(EIDOS_OPT_COUNT == POKEBW_EIDOS_OPT_COUNT, "option count mismatch");
+_Static_assert(EIDOS_OPT_LAYOUT_ARRANGEMENT == POKEBW_EIDOS_OPT_LAYOUT, "layout id mismatch");
+_Static_assert(EIDOS_OPT_WEATHER_HAZE == POKEBW_EIDOS_OPT_WEATHER_HAZE, "weather haze id mismatch");
+
+static void sync_host_all(void)
+{
+    int id;
+
+    for (id = 0; id < EIDOS_OPT_COUNT; id++) {
+        bw_host_eidos_opt_sync(id, g_cur.v[id]);
+    }
+}
+#endif
+
 #define NBTN 12
 #define PATH_MAX_LEN BW_SETUP_PATH_MAX
 
@@ -520,6 +538,9 @@ int eidos_settings_set(int id, int value)
     if (id == EIDOS_OPT_UI_THEME) {
         g_cur.style_chosen = 1;
     }
+#if defined(__wasm__)
+    bw_host_eidos_opt_sync(id, g_cur.v[id]);
+#endif
     return 0;
 }
 
@@ -2615,6 +2636,9 @@ void eidos_settings_attach(EidosPlatform *p)
     g_attaching = 1;
     apply_all();
     g_attaching = 0;
+#if defined(__wasm__)
+    sync_host_all();
+#endif
 }
 
 void eidos_settings_detach(void)
@@ -2703,6 +2727,26 @@ void eidos_settings_on_maximize(EidosPlatform *p, int maximized)
  */
 void eidos_settings_idle(EidosPlatform *p, u32 now_ms)
 {
+#if defined(__wasm__)
+    if (p != NULL && p == g_plat) {
+        int host_changed = 0;
+        unsigned packed;
+
+        while ((packed = bw_host_eidos_opt_poll()) != 0u) {
+            int id = (int)(packed >> 16) - 1;
+            int val = (int)(packed & 0xFFFFu);
+
+            if (id >= 0 && id < EIDOS_OPT_COUNT && g_cur.v[id] != val) {
+                if (eidos_settings_set(id, val) == 0) {
+                    host_changed = 1;
+                }
+            }
+        }
+        if (host_changed) {
+            (void)eidos_settings_commit();
+        }
+    }
+#endif
     if (p == NULL || p != g_plat || !g_size_pending) {
         return;
     }

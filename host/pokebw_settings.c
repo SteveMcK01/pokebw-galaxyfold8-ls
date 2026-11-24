@@ -13,6 +13,8 @@
 static PokebwSettings g_settings;
 static char g_settings_path[1024] = "pokebw_settings.ini";
 static int g_initialized = 0;
+static int g_eidos_opt[POKEBW_EIDOS_OPT_COUNT];
+static unsigned char g_eidos_dirty[POKEBW_EIDOS_OPT_COUNT];
 
 static void apply_control_defaults(PokebwSettings *s)
 {
@@ -121,9 +123,20 @@ static void load_ini(const char *path)
     fclose(f);
 }
 
+static void init_eidos_opt_defaults(void)
+{
+    memset(g_eidos_opt, 0, sizeof(g_eidos_opt));
+    memset(g_eidos_dirty, 0, sizeof(g_eidos_dirty));
+    g_eidos_opt[POKEBW_EIDOS_OPT_LAYOUT] = 2; /* One Screen */
+    g_eidos_opt[POKEBW_EIDOS_OPT_VOLUME] = 50;
+    g_eidos_opt[POKEBW_EIDOS_OPT_MOVE_COLOURS] = 1;
+    g_eidos_opt[POKEBW_EIDOS_OPT_VSYNC] = 1;
+}
+
 void host_settings_init(const char *profile_dir)
 {
     apply_all_defaults(&g_settings);
+    init_eidos_opt_defaults();
     if (profile_dir != NULL && profile_dir[0] != '\0') {
         size_t len = strlen(profile_dir);
         if (profile_dir[len - 1] == '/' || profile_dir[len - 1] == '\\') {
@@ -136,6 +149,10 @@ void host_settings_init(const char *profile_dir)
     }
     g_initialized = 1;
     load_ini(g_settings_path);
+    if (g_settings.instant_text != 0) {
+        g_eidos_opt[POKEBW_EIDOS_OPT_INSTANT_TEXT] = 1;
+        g_eidos_dirty[POKEBW_EIDOS_OPT_INSTANT_TEXT] = 1;
+    }
 }
 
 PokebwSettings *host_settings_get(void)
@@ -179,6 +196,7 @@ void host_settings_reset_controls(void)
 void host_settings_reset_defaults(void)
 {
     apply_all_defaults(host_settings_get());
+    host_eidos_opt_set(POKEBW_EIDOS_OPT_INSTANT_TEXT, 0);
     (void)host_settings_save();
 }
 
@@ -251,4 +269,61 @@ const char *host_settings_path(void)
         host_settings_init(NULL);
     }
     return g_settings_path;
+}
+
+void host_eidos_opt_from_wasm(int id, int value)
+{
+    if (!g_initialized) {
+        host_settings_init(NULL);
+    }
+    if (id < 0 || id >= POKEBW_EIDOS_OPT_COUNT) {
+        return;
+    }
+    if (g_eidos_dirty[id]) {
+        return;
+    }
+    g_eidos_opt[id] = value;
+    if (id == POKEBW_EIDOS_OPT_INSTANT_TEXT) {
+        g_settings.instant_text = value ? 1 : 0;
+    }
+}
+
+int host_eidos_opt_get(int id)
+{
+    if (!g_initialized) {
+        host_settings_init(NULL);
+    }
+    if (id < 0 || id >= POKEBW_EIDOS_OPT_COUNT) {
+        return 0;
+    }
+    return g_eidos_opt[id];
+}
+
+void host_eidos_opt_set(int id, int value)
+{
+    if (!g_initialized) {
+        host_settings_init(NULL);
+    }
+    if (id < 0 || id >= POKEBW_EIDOS_OPT_COUNT) {
+        return;
+    }
+    g_eidos_opt[id] = value;
+    g_eidos_dirty[id] = 1;
+    if (id == POKEBW_EIDOS_OPT_INSTANT_TEXT) {
+        g_settings.instant_text = value ? 1 : 0;
+        (void)host_settings_save();
+    }
+}
+
+unsigned host_eidos_opt_poll_pending(void)
+{
+    int id;
+
+    for (id = 0; id < POKEBW_EIDOS_OPT_COUNT; id++) {
+        if (g_eidos_dirty[id]) {
+            g_eidos_dirty[id] = 0;
+            return (((unsigned)(id + 1)) << 16) | ((unsigned)g_eidos_opt[id] & 0xFFFFu);
+        }
+    }
+    return 0u;
 }

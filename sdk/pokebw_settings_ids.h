@@ -31,6 +31,25 @@ enum {
     POKEBW_SET_INSTANT_TEXT          = 34,
 };
 
+/* Mirror of engine/platform/settings.h EIDOS_OPT_* IDs exposed to ImGui. */
+enum {
+    POKEBW_EIDOS_OPT_RESOLUTION       = 2,
+    POKEBW_EIDOS_OPT_LAYOUT           = 6,
+    POKEBW_EIDOS_OPT_SWAP             = 7,
+    POKEBW_EIDOS_OPT_GAP              = 8,
+    POKEBW_EIDOS_OPT_VOLUME           = 9,
+    POKEBW_EIDOS_OPT_INSTANT_TEXT     = 10,
+    POKEBW_EIDOS_OPT_BATTLE_BACKDROP  = 11,
+    POKEBW_EIDOS_OPT_BATTLE_PLATFORMS = 12,
+    POKEBW_EIDOS_OPT_MOVE_COLOURS     = 13,
+    POKEBW_EIDOS_OPT_OUTLINES         = 15,
+    POKEBW_EIDOS_OPT_TRANSITIONS      = 16,
+    POKEBW_EIDOS_OPT_VSYNC            = 19,
+    POKEBW_EIDOS_OPT_UI_THEME         = 20,
+    POKEBW_EIDOS_OPT_WEATHER_HAZE     = 21,
+    POKEBW_EIDOS_OPT_COUNT            = 22
+};
+
 #if defined(__wasm__)
 #include "wasm_host.h"
 static inline int bw_pokebw_setting(int id)

@@ -7,6 +7,7 @@
 
 #include "imgui_overlay.h"
 #include "pokebw_settings.h"
+#include "pokebw_settings_ids.h"
 
 #include <GLES3/gl3.h>
 #include <SDL3/SDL.h>
@@ -116,6 +117,17 @@ bool ensure_init(SDL_Window *window)
     return true;
 }
 
+void help_marker(const char *help)
+{
+    if (help != nullptr && help[0] != '\0') {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("%s", help);
+        }
+    }
+}
+
 bool setting_checkbox(const char *label, const char *help, int *field, bool disabled = false)
 {
     bool v = (*field != 0);
@@ -130,13 +142,44 @@ bool setting_checkbox(const char *label, const char *help, int *field, bool disa
         *field = v ? 1 : 0;
         host_settings_save();
     }
-    if (help != nullptr && help[0] != '\0') {
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-            ImGui::SetTooltip("%s", help);
-        }
+    help_marker(help);
+    return changed;
+}
+
+bool eidos_checkbox(const char *label, const char *help, int opt_id)
+{
+    bool v = (host_eidos_opt_get(opt_id) != 0);
+    bool changed = ImGui::Checkbox(label, &v);
+    if (changed) {
+        host_eidos_opt_set(opt_id, v ? 1 : 0);
     }
+    help_marker(help);
+    return changed;
+}
+
+bool eidos_combo(const char *label, const char *help, int opt_id,
+                 const char *const *items, int count)
+{
+    int v = host_eidos_opt_get(opt_id);
+    if (v < 0 || v >= count) {
+        v = 0;
+    }
+    bool changed = ImGui::Combo(label, &v, items, count);
+    if (changed) {
+        host_eidos_opt_set(opt_id, v);
+    }
+    help_marker(help);
+    return changed;
+}
+
+bool eidos_slider(const char *label, const char *help, int opt_id, int min_v, int max_v)
+{
+    int v = std::clamp(host_eidos_opt_get(opt_id), min_v, max_v);
+    bool changed = ImGui::SliderInt(label, &v, min_v, max_v);
+    if (changed) {
+        host_eidos_opt_set(opt_id, v);
+    }
+    help_marker(help);
     return changed;
 }
 
@@ -195,6 +238,39 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     ImGui::EndTabItem();
                 }
 
+                if (ImGui::BeginTabItem("Display & Audio")) {
+                    static const char *const k_layouts[] = { "Stacked", "Side-by-Side", "One Screen" };
+                    static const char *const k_themes[] = { "Kosmos", "Plasma", "Harmonia" };
+                    static const char *const k_resolutions[] = { "Auto", "1x", "2x", "3x", "4x", "5x", "6x" };
+                    static const char *const k_backdrops[] = { "Real Map", "Original" };
+
+                    ImGui::Spacing();
+                    eidos_combo("Screen Layout",
+                                "One Screen uses eidos widescreen 3D + redesigned UI; Stacked/Side-by-Side show both DS screens.",
+                                POKEBW_EIDOS_OPT_LAYOUT, k_layouts, 3);
+                    int layout = host_eidos_opt_get(POKEBW_EIDOS_OPT_LAYOUT);
+                    if (layout != 2) {
+                        eidos_checkbox("Swap Screens", nullptr, POKEBW_EIDOS_OPT_SWAP);
+                        eidos_slider("Screen Gap (px)", nullptr, POKEBW_EIDOS_OPT_GAP, 0, 64);
+                    } else {
+                        eidos_combo("Interface Style",
+                                    "One-screen interface theme (Kosmos, Plasma, Harmonia).",
+                                    POKEBW_EIDOS_OPT_UI_THEME, k_themes, 3);
+                    }
+                    ImGui::Separator();
+                    eidos_combo("3D Resolution", nullptr, POKEBW_EIDOS_OPT_RESOLUTION, k_resolutions, 7);
+                    eidos_checkbox("3D Outlines", "Thin crisp edge outlines on 3D models.", POKEBW_EIDOS_OPT_OUTLINES);
+                    eidos_combo("Battle Backdrop",
+                                "Real Map renders battles in the 3D overworld when using One Screen mode.",
+                                POKEBW_EIDOS_OPT_BATTLE_BACKDROP, k_backdrops, 2);
+                    eidos_checkbox("Battle Platforms", nullptr, POKEBW_EIDOS_OPT_BATTLE_PLATFORMS);
+                    eidos_checkbox("Weather Haze", "Apply overworld fog/weather haze to Pokemon and trainers in battle.", POKEBW_EIDOS_OPT_WEATHER_HAZE);
+                    eidos_checkbox("VSync", nullptr, POKEBW_EIDOS_OPT_VSYNC);
+                    ImGui::Separator();
+                    eidos_slider("Master Volume (%)", nullptr, POKEBW_EIDOS_OPT_VOLUME, 0, 100);
+                    ImGui::EndTabItem();
+                }
+
                 if (ImGui::BeginTabItem("Gameplay")) {
                     ImGui::Spacing();
                     ImGui::TextDisabled("Phase 1 hooks (saved automatically):");
@@ -219,11 +295,19 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     ImGui::EndTabItem();
                 }
 
-                if (ImGui::BeginTabItem("QoL & Display")) {
+                if (ImGui::BeginTabItem("QoL")) {
+                    static const char *const k_transitions[] = { "Original", "Fast", "Seamless" };
+
                     ImGui::Spacing();
-                    setting_checkbox("Foldable Full-Screen + PiP Mode",
-                                     "Full-screen Engine A with movable Engine B PiP (Phase 1.5).",
-                                     &cfg->fold_pip_mode);
+                    eidos_checkbox("Instant Text",
+                                   "Print each dialogue page at once while keeping page-turn pauses.",
+                                   POKEBW_EIDOS_OPT_INSTANT_TEXT);
+                    eidos_combo("Map Transitions",
+                                "Controls fade speed between doors and maps.",
+                                POKEBW_EIDOS_OPT_TRANSITIONS, k_transitions, 3);
+                    eidos_checkbox("Type-Colored Move Names",
+                                   "Color move names by type inside battle messages.",
+                                   POKEBW_EIDOS_OPT_MOVE_COLOURS);
                     ImGui::Separator();
                     ImGui::TextDisabled("Phase 2 QoL toggles:");
                     ImGui::Spacing();
@@ -231,7 +315,6 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     setting_checkbox("Hard Level Cap", nullptr, &cfg->hard_level_cap);
                     setting_checkbox("No Random Encounters", nullptr, &cfg->no_random_encounters);
                     setting_checkbox("Always Bite When Fishing", nullptr, &cfg->always_bite_fishing);
-                    setting_checkbox("Instant Text", nullptr, &cfg->instant_text);
                     ImGui::EndTabItem();
                 }
                 ImGui::EndTabBar();

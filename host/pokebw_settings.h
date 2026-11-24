@@ -43,6 +43,12 @@ void host_settings_reset_defaults(void);
 int  host_settings_save(void);
 const char *host_settings_path(void);
 
+/* Two-way mirror of eidos built-in EIDOS_OPT_* settings. */
+void host_eidos_opt_from_wasm(int id, int value);
+int  host_eidos_opt_get(int id);
+void host_eidos_opt_set(int id, int value);
+unsigned host_eidos_opt_poll_pending(void);
+
 #ifdef __cplusplus
 }
 #endif

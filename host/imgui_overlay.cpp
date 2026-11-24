@@ -210,7 +210,7 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                                      &cfg->hm_freedom);
                     ImGui::Indent();
                     setting_checkbox("HM Badge Bypass",
-                                     "Allow field HMs before earning their badge.",
+                                     "Allow field HMs even before obtaining the HM/TM item in your Bag.",
                                      &cfg->hm_no_badges, cfg->hm_freedom == 0);
                     ImGui::Unindent();
                     setting_checkbox("Gotta Catch 'Em All! Mode",

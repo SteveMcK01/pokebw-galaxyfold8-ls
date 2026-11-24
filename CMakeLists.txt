@@ -3356,6 +3356,15 @@ if(NOT _eidos_ovls STREQUAL "")
     target_compile_definitions(eidos_boot PRIVATE EIDOS_OVERLAYS=1)
     message(STATUS "EIDOS_OVERLAYS: ${_eidos_ovls}, ${boot_OVL_UNITS} matched sources")
 
+    # PokeBW Fold Phase 1.2: Modern EXP Share (ov093 CalcPartyExpShares wrap)
+    if(NOT MSVC AND NOT APPLE AND EIDOS_BOOT AND
+       (_eidos_ovls STREQUAL "ALL" OR ";${_eidos_ovls};" MATCHES ";93;"))
+        target_sources(eidos_boot PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_exp_share.c)
+        target_link_options(eidos_boot PRIVATE
+            "-Wl,--wrap=ov093_BTL_SERVER_FLOW_CalcPartyExpShares")
+    endif()
+
     # test_ovlink_title: every overlay of the set loaded from the extract in
     # turn, its tables checked against the player's files.  Without the
     # boot only: with it the overlays' ARM9 callees are the boot's, and

@@ -338,6 +338,9 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     setting_checkbox("Always Bite When Fishing",
                                      "Guarantees a bite whenever fishing in valid water.",
                                      &cfg->always_bite_fishing);
+                    setting_checkbox("Battle Effectiveness Pills",
+                                     "Show 4x/2x/1/2/1/4/0x badges on move cards (Teravolt, Turboblaze, Mold Breaker, and ability-aware).",
+                                     &cfg->type_effectiveness);
                     {
                         static const char *const k_seasons[] = { "Auto", "Spring", "Summer", "Autumn", "Winter" };
                         static const char *const k_clocks[] = { "Auto", "Morning (07:00)", "Day (13:00)", "Evening (18:00)", "Night (22:00)" };

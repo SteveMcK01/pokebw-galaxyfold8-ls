@@ -24,7 +24,7 @@
 
 ### Phase 2: Fast-Follow QoL, Battle HUD & Gear Radar (Low -> Medium)
 1. **QoL & Cheats (Done):** Instant Text and Fast/Seamless Map Transitions are wired from `eidos`; added Hard Level Cap (Unova badge caps), No Random Encounters, Always Bite When Fishing, and Season & Clock Switcher.
-2. **Gen 5 Battle HUD Enhancements (Low-Medium):** `eidos`'s `engine/ui/recipe_battle.c` already provides the full one-screen touch Battle HUD (Action/Move/Target cards, real-map backdrops, move colors, battle Bag/Party); focus on adding live type-effectiveness pills (`2x` / `4x` / `0.5x` / `0x`, Teravolt/Turboblaze-aware) directly into `recipe_battle.c` without conflicting with `eidos`.
+2. ~~**Gen 5 Battle HUD Enhancements (Low-Medium):**~~ **Done (`bw-fold`)**: Added Gen 5 `4x`/`2x`/`1/2`/`1/4`/`0x` move-card effectiveness pills directly in `engine/ui/recipe_battle.c` (Teravolt/Turboblaze/Mold Breaker, Scrappy, and defender ability-aware, Illusion-safe), toggled via `Battle Effectiveness Pills` (`POKEBW_SET_TYPE_EFFECTIVENESS`) in the ImGui `QoL` tab.
 3. **Gear Companion & Unova Route Radar (Medium):** Party move-pill cards, save slots, and live encounter radar supporting Seasons, Dark Grass, and Phenomena.
 
 ### Phase 3: 649-Species Sprites, Following Pokémon & Overworld Wilds (Medium-High -> High)

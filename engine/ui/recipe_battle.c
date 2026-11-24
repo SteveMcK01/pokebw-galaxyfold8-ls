@@ -56,6 +56,7 @@
 #include "input.h"
 #include "overlay.h"
 #include "port.h"
+#include "pokebw_settings_ids.h"
 
 /* The game's own functions, resolved when the game is linked in. */
 struct PokemonParam;
@@ -2536,6 +2537,128 @@ static void move_read(const u8 *poke, int i, MoveV *m)
     }
 }
 
+/* Gen 5 type chart in x2 units (0=0x, 1=0.5x, 2=1x, 4=2x).
+ * Order matches k_type_name: 0 NOR .. 16 DAR (no Fairy, Steel resists Ghost & Dark). */
+static const u8 k_gen5_type_chart[17][17] = {
+    {2,2,2,2,2,1,2,0,1,2,2,2,2,2,2,2,2}, /* Normal */
+    {4,2,1,1,2,4,1,0,4,2,2,2,2,1,4,2,4}, /* Fighting */
+    {2,4,2,2,2,1,4,2,1,2,2,4,1,2,2,2,2}, /* Flying */
+    {2,2,2,1,1,1,2,1,0,2,2,4,2,2,2,2,2}, /* Poison */
+    {2,2,0,4,2,4,1,2,4,4,2,1,4,2,2,2,2}, /* Ground */
+    {2,1,4,2,1,2,4,2,1,4,2,2,2,2,4,2,2}, /* Rock */
+    {2,1,1,1,2,2,2,1,1,1,2,4,2,4,2,2,4}, /* Bug */
+    {0,2,2,2,2,2,2,4,1,2,2,2,2,4,2,2,1}, /* Ghost (Steel=0.5x in Gen 5) */
+    {2,2,2,2,2,4,2,2,1,1,1,2,1,2,4,2,2}, /* Steel */
+    {2,2,2,2,2,1,4,2,4,1,1,4,2,2,4,1,2}, /* Fire */
+    {2,2,2,2,4,4,2,2,2,4,1,1,2,2,2,1,2}, /* Water */
+    {2,2,1,1,4,4,1,2,1,1,4,1,2,2,2,1,2}, /* Grass */
+    {2,2,4,2,0,2,2,2,2,2,4,1,1,2,2,1,2}, /* Electric */
+    {2,4,2,4,2,2,2,2,1,2,2,2,2,1,2,2,0}, /* Psychic */
+    {2,2,4,2,4,2,2,2,1,1,1,4,2,2,1,4,2}, /* Ice */
+    {2,2,2,2,2,2,2,2,1,2,2,2,2,2,2,4,2}, /* Dragon */
+    {2,1,2,2,2,2,2,4,1,2,2,2,2,4,2,2,1}, /* Dark (Steel=0.5x in Gen 5) */
+};
+
+static u8 *single_active_foe(const Bt *b)
+{
+    static const int foe_vps[3] = { 3, 5, 7 };
+    u8 *found = NULL;
+    int cnt = 0;
+    int i;
+
+    for (i = 0; i < 3; i++) {
+        u8 *fp = poke_at_view(b, foe_vps[i]);
+
+        if (fp != NULL && rd16(fp, 0x10) > 0) {
+            found = fp;
+            cnt++;
+        }
+    }
+    return cnt == 1 ? found : NULL;
+}
+
+static int battle_type_factor(int atk_type, int def_type, int atk_ab)
+{
+    if (atk_type < 0 || atk_type >= 17 || def_type < 0 || def_type >= 17) {
+        return 2;
+    }
+    if (atk_ab == 113 && (atk_type == 0 || atk_type == 1) && def_type == 7) {
+        return 2; /* Scrappy */
+    }
+    return (int)k_gen5_type_chart[atk_type][def_type];
+}
+
+/* Effectiveness in x4 units (16=4x, 8=2x, 4=1x, 2=0.5x, 1=0.25x, 0=0x), or -1 to hide. */
+static int battle_eff_x4(const u8 *atk, const u8 *def, const MoveV *m)
+{
+    int atk_ab, def_ab, ignore_ab, t1, t2, eff;
+
+    if (atk == NULL || def == NULL || m == NULL || m->id == 0 || m->category == 0) {
+        return -1;
+    }
+    if (m->type < 0 || m->type >= 17) {
+        return -1;
+    }
+    if ((def[0x1B] & 0x40) != 0) {
+        return -1; /* Hide while Illusion disguises the defender */
+    }
+    t1 = (int)def[0xF8];
+    t2 = (int)def[0xF9];
+    if (t1 < 0 || t1 >= 17) {
+        return -1;
+    }
+    atk_ab = (int)rd16(atk, 0x13C);
+    def_ab = (int)rd16(def, 0x13C);
+    /* Mold Breaker (104), Turboblaze (163), Teravolt (164) ignore defender abilities */
+    ignore_ab = (atk_ab == 104 || atk_ab == 163 || atk_ab == 164);
+
+    if (!ignore_ab) {
+        if (def_ab == 26 && m->type == 4) return 0; /* Levitate */
+        if (def_ab == 18 && m->type == 9) return 0; /* Flash Fire */
+        if ((def_ab == 11 || def_ab == 87 || def_ab == 114) && m->type == 10) return 0; /* Water Absorb / Dry Skin / Storm Drain */
+        if ((def_ab == 10 || def_ab == 78 || def_ab == 31) && m->type == 12) return 0; /* Volt Absorb / Motor Drive / Lightningrod */
+        if (def_ab == 157 && m->type == 11) return 0; /* Sap Sipper */
+    }
+
+    eff = battle_type_factor(m->type, t1, atk_ab);
+    if (t2 >= 0 && t2 < 17 && t2 != t1) {
+        eff *= battle_type_factor(m->type, t2, atk_ab);
+    } else {
+        eff *= 2;
+    }
+
+    if (!ignore_ab) {
+        if (def_ab == 25 && eff < 8) return 0; /* Wonder Guard */
+        if (def_ab == 47 && (m->type == 9 || m->type == 14) && eff > 1) eff /= 2; /* Thick Fat */
+        if (def_ab == 85 && m->type == 9 && eff > 1) eff /= 2; /* Heatproof */
+    }
+    return eff;
+}
+
+static void draw_eff_pill(EidosUiCtx *c, int card_x, int card_y, int card_w, int eff_x4)
+{
+    const char *label = NULL;
+    u32 fill = UI_BODY, border = UI_EDGE2, fg = UI_WHITE;
+    int pw, px, py;
+
+    switch (eff_x4) {
+    case 16: label = "4x";  fill = 0x104A1Cu; border = UI_LIME;  fg = UI_LIME;  break;
+    case 8:  label = "2x";  fill = 0x103E1Cu; border = UI_HP_G;  fg = UI_HP_G;  break;
+    case 2:  label = "1/2"; fill = 0x4E141Cu; border = UI_HP_R;  fg = UI_HP_R;  break;
+    case 1:  label = "1/4"; fill = 0x4E0816u; border = UI_FIGHT; fg = UI_FIGHT; break;
+    case 0:  label = "0x";  fill = UI_BODY;   border = UI_GREY;  fg = UI_GREY;  break;
+    default: return;
+    }
+    pw = ui_text_w(label, UI_FONT_SMALL) + 8;
+    px = card_x + card_w - pw - 3;
+    py = card_y - 3;
+    if (py < 1) {
+        py = 1;
+    }
+    ui_panel(c, px, py, pw, 11, UI_CUT_TL | UI_CUT_BR, 2, fill, border, 235);
+    ui_text(c, px + 4, py + 1, label, fg, UI_INK, UI_FONT_SMALL, 1);
+}
+
 static int move_match(void)
 {
     Bt b;
@@ -2651,10 +2774,13 @@ static void move_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
                 cur = to;
             }
         }
+        u8 *foe = bw_pokebw_setting(POKEBW_SET_TYPE_EFFECTIVENESS) ? single_active_foe(&b) : NULL;
+
         for (i = 0; i < 4; i++) {
             char name[40];
             int sel = g_click_cur < 0 && hovered >= 0 ? hovered == i : cur == i;
             int x = l.move[i].x, y = l.move[i].y, tw = l.move[i].w, mh = l.move[i].h;
+            int eff_y = theme->battle_move != NULL ? y : y - (sel ? 1 : 0);
 
             if (mv[i].id == 0) {
                 if (theme->battle_move != NULL) {
@@ -2671,6 +2797,13 @@ static void move_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
             } else {
                 move_tile(c, x, y - (sel ? 1 : 0), tw, mh, mv[i].type, name, mv[i].pp,
                           mv[i].maxpp, sel, mv[i].pp != 0 && en[i]);
+            }
+            if (foe != NULL) {
+                int eff = battle_eff_x4(poke, foe, &mv[i]);
+
+                if (eff >= 0 && eff != 4) {
+                    draw_eff_pill(c, x, eff_y, tw, eff);
+                }
             }
         }
         {

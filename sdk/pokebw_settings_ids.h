@@ -31,6 +31,7 @@ enum {
     POKEBW_SET_INSTANT_TEXT          = 34,
     POKEBW_SET_SEASON_OVERRIDE       = 35, /* 0 Auto, 1 Spring, 2 Summer, 3 Autumn, 4 Winter */
     POKEBW_SET_CLOCK_OVERRIDE        = 36, /* 0 Auto, 1 Morning, 2 Day, 3 Evening, 4 Night */
+    POKEBW_SET_TYPE_EFFECTIVENESS    = 37,
 };
 
 /* Mirror of engine/platform/settings.h EIDOS_OPT_* IDs exposed to ImGui. */
@@ -61,7 +62,9 @@ static inline int bw_pokebw_setting(int id)
 #else
 static inline int bw_pokebw_setting(int id)
 {
-    return (id == POKEBW_SET_TRADE_EVO_FIX || id == POKEBW_SET_PORTABLE_PC) ? 1 : 0;
+    return (id == POKEBW_SET_TRADE_EVO_FIX ||
+            id == POKEBW_SET_PORTABLE_PC ||
+            id == POKEBW_SET_TYPE_EFFECTIVENESS) ? 1 : 0;
 }
 #endif
 

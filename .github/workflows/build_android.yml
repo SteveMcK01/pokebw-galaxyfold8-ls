@@ -1,0 +1,205 @@
+name: build_android
+
+on:
+  push:
+    branches: [ bw-fold ]
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    branches: [ bw-fold ]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build_android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      EIDOS_SDL_CACHE: ${{ github.workspace }}/.cache/sdl
+      EIDOS_WAMR_CACHE: ${{ github.workspace }}/.cache/wamr
+      EIDOS_MBEDTLS_CACHE: ${{ github.workspace }}/.cache/mbedtls
+      EIDOS_WASM_CACHE: ${{ github.workspace }}/.cache/wasm
+    steps:
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-noble-eidos-android-v1
+
+      - name: Install build tools
+        timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          (
+            echo "http://azure.archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            sudo sed -i -E 's|mirror\+file:/+etc/apt/apt-mirrors\.txt|http://azure.archive.ubuntu.com/ubuntu/|g; s|https?://([a-z0-9-]+\.ec2\.|security\.|archive\.)ubuntu\.com/ubuntu/?|http://azure.archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+            APT_OPTS="-o Acquire::ForceIPv4=true -o Acquire::http::Pipeline-Depth=0 -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+            sudo apt-get update -y $APT_OPTS
+            sudo apt-get install -y --no-install-recommends $APT_OPTS ninja-build
+          )
+
+      - name: Checkout pokebw-galaxyfold8-ls
+        uses: actions/checkout@v4
+
+      - name: Checkout aletheia
+        uses: actions/checkout@v4
+        with:
+          repository: SteveMcK01/aletheia
+          ref: main
+          token: ${{ secrets.ALETHEIA_TOKEN || github.token }}
+          path: aletheia
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache eidos toolchains & deps
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: deps-android-${{ hashFiles('tools/fetch_sdl.py', 'tools/fetch_wamr.py', 'tools/fetch_mbedtls.py', 'tools/fetch_wasm.py') }}
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/build.gradle', 'android/app/build.gradle') }}
+
+      - name: Fetch SDL3, WAMR, Mbed TLS, and wasm toolchain
+        run: |
+          (
+            python3 tools/fetch_sdl.py --flavor mingw
+            python3 tools/fetch_sdl.py --flavor source
+            python3 tools/fetch_wamr.py
+            python3 tools/fetch_mbedtls.py
+            python3 tools/fetch_wasm.py
+          )
+
+      - name: Generate ROM byte placeholders
+        run: python3 tools/package_release.py placeholders --aletheia-root aletheia
+
+      - name: Stage 1 - Build wasm32 game module
+        run: |
+          (
+            set -o pipefail
+            eval "$(python3 tools/fetch_wasm.py --locate)"
+            MBEDTLS_ROOT="$(python3 tools/fetch_mbedtls.py | tail -n 1)"
+            WAMR_ROOT="$(python3 tools/fetch_wamr.py | tail -n 1)"
+            cmake -S . -B build-wasm -G Ninja \
+              -DCMAKE_TOOLCHAIN_FILE="$WASI_SDK_PREFIX/share/cmake/wasi-sdk-p1.cmake" \
+              -DWASI_SDK_PREFIX="$WASI_SDK_PREFIX" \
+              -DCMAKE_C_FLAGS="-O2 -fno-strict-aliasing -fwrapv -fno-delete-null-pointer-checks -D_GNU_SOURCE" \
+              -DEIDOS_BOOT=ON \
+              -DEIDOS_BOOT_ALL_GAME=ON \
+              -DEIDOS_OVERLAYS=ALL \
+              -DEIDOS_TLS=ON \
+              -DEIDOS_WASM=ON \
+              -DEIDOS_SDL_FETCH=ON \
+              -DEIDOS_MBEDTLS_ROOT="$MBEDTLS_ROOT" \
+              -DEIDOS_WAMR_ROOT="$WAMR_ROOT" \
+              -DALETHEIA_ROOT="$PWD/aletheia" \
+              -DBW_DATA_ROOT="$PWD/no-game-data/extract/data" 2>&1 | tee build.log
+            cmake --build build-wasm --target eidos_boot --parallel 4 2>&1 | tee -a build.log
+          )
+
+      - name: Stage 2 - Build arm64-v8a APK
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+          EIDOS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          EIDOS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          EIDOS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          (
+            set -o pipefail
+            export VERSION_CODE=$((9200000 + RUN_NUMBER))
+            export VERSION_NAME="$(git rev-parse --short HEAD)"
+            echo "Building VERSION_CODE=$VERSION_CODE VERSION_NAME=$VERSION_NAME"
+            mkdir -p dist
+            if [ -n "$KEYSTORE_B64" ]; then
+              echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/eidos.keystore"
+              export EIDOS_KEYSTORE="$RUNNER_TEMP/eidos.keystore"
+              python3 android/build.py --module build-wasm/eidos_boot.wasm --build-dir build-android --jobs 4 --release 2>&1 | tee -a build.log
+              cp android/app/build/outputs/apk/release/*.apk dist/pokebw-fold.apk
+              rm -f "$EIDOS_KEYSTORE"
+            else
+              echo "::warning::no ANDROID_KEYSTORE secret: building debug-signed APK"
+              python3 android/build.py --module build-wasm/eidos_boot.wasm --build-dir build-android --jobs 4 2>&1 | tee -a build.log
+              cp android/app/build/outputs/apk/debug/*.apk dist/pokebw-fold.apk
+            fi
+            ls -lh dist/pokebw-fold.apk
+          )
+
+      - name: Report build errors
+        if: failure()
+        run: |
+          [ -f build.log ] || exit 0
+          python3 - <<'PY'
+          import re
+          lines = open('build.log', errors='replace').read().splitlines()
+          failed = [l for l in lines if l.startswith('FAILED:')]
+          errors = list(dict.fromkeys(l.strip() for l in lines
+                                      if re.search(r'error:|undefined (symbol|reference)|fatal|ERROR|What went wrong', l)))
+          if failed:
+              errors.insert(0, f'{len(failed)} failed build steps, first: {failed[0]}')
+          def emit(title, chunk):
+              msg = '\n'.join(chunk)[-30000:]
+              msg = msg.replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+              print(f'::error title={title}::{msg}')
+          if errors:
+              emit('Errors', errors[:150])
+          emit('Log tail', lines[-200:])
+          PY
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokebw-android
+          path: dist/pokebw-fold.apk
+          if-no-files-found: error
+
+      - name: Upload symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokebw-android-symbols
+          path: build-android/libmain.so
+          if-no-files-found: warn
+
+  publish_latest:
+    needs: build_android
+    if: github.repository_owner == 'SteveMcK01' && github.event_name != 'pull_request' && github.ref == 'refs/heads/bw-fold'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: pokebw-android
+
+      - name: Publish latest build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          (
+            gh release delete bw-fold-android-latest --yes --cleanup-tag 2>/dev/null || true
+            gh release create bw-fold-android-latest pokebw-fold.apk \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "PokéBW Fold Android build (latest)" \
+              --notes "Rolling arm64-v8a build of ${GITHUB_SHA::8} (run ${{ github.run_number }}), replaced on every push to bw-fold."
+          )

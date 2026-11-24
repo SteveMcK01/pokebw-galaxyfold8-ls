@@ -24,3 +24,5 @@ android/build/
 android/local.properties
 build-android/
 build-ios/
+*.jks
+*.keystore

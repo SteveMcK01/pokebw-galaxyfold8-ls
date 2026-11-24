@@ -10,6 +10,8 @@
 #if defined(__ANDROID__)
 
 #include "touch_controls.h"
+#include "imgui_overlay.h"
+#include "pokebw_settings.h"
 
 #include <GLES3/gl3.h>
 #include <math.h>
@@ -36,6 +38,7 @@ enum {
     FINGER_ROLE_STYLUS = 0,
     FINGER_ROLE_VPAD   = 1,
     FINGER_ROLE_TOGGLE = 2,
+    FINGER_ROLE_MENU   = 3,
 };
 
 typedef struct {
@@ -63,6 +66,7 @@ typedef struct {
     RectGeom select_btn;
     RectGeom start_btn;
     RectGeom toggle_btn;
+    RectGeom menu_btn;
 } TouchLayout;
 
 typedef struct {
@@ -74,7 +78,6 @@ typedef struct {
 #define MAX_VERTS   8192
 
 static TouchFinger g_fingers[MAX_FINGERS];
-static int g_visible = 1;
 static unsigned g_pad_mask = 0;
 static int g_last_down_claimed = 0;
 static int g_last_up_claimed = 0;
@@ -115,24 +118,39 @@ static void update_window_metrics(SDL_Window *win)
 
 static void compute_layout(TouchLayout *L)
 {
+    const PokebwSettings *cfg = host_settings_get();
     float sx = (float)g_safe.x;
     float sy = (float)g_safe.y;
     float sw = (float)g_safe.w;
     float sh = (float)g_safe.h;
     float u = sw < sh ? sw : sh;
+    float sc = (float)cfg->touch_scale / 100.0f;
     float margin = u * 0.042f;
-    float dpad_r = u * 0.160f;
-    float btn_r = u * 0.068f;
-    float face_step = btn_r * 1.98f;
+    float dpad_r;
+    float btn_r;
+    float face_step;
     float face_cx, face_cy;
-    float pill_hw = u * 0.088f;
-    float pill_hh = u * 0.036f;
-    float sh_hw = u * 0.095f;
-    float sh_hh = u * 0.042f;
+    float pill_hw;
+    float pill_hh;
+    float sh_hw;
+    float sh_hh;
     float tog_hw = u * 0.072f;
     float tog_hh = u * 0.028f;
+    float top_sep = u * 0.082f;
     float center_x = sx + sw * 0.5f;
-    float sys_sep = u * 0.125f;
+    float sys_sep;
+
+    if (sc < 0.70f) sc = 0.70f;
+    if (sc > 1.40f) sc = 1.40f;
+
+    dpad_r = u * 0.160f * sc;
+    btn_r = u * 0.068f * sc;
+    face_step = btn_r * 1.98f;
+    pill_hw = u * 0.088f * sc;
+    pill_hh = u * 0.036f * sc;
+    sh_hw = u * 0.095f * sc;
+    sh_hh = u * 0.042f * sc;
+    sys_sep = u * 0.125f * sc;
 
     L->ww = g_win_w;
     L->wh = g_win_h;
@@ -158,8 +176,9 @@ static void compute_layout(TouchLayout *L)
     L->select_btn = (RectGeom){ center_x - sys_sep, sy + sh - margin - pill_hh, pill_hw, pill_hh };
     L->start_btn  = (RectGeom){ center_x + sys_sep, sy + sh - margin - pill_hh, pill_hw, pill_hh };
 
-    /* Top-center Hide/Show toggle */
-    L->toggle_btn = (RectGeom){ center_x, sy + margin + tog_hh, tog_hw, tog_hh };
+    /* Top-center Hide/Show toggle + ImGui Settings Menu pill */
+    L->toggle_btn = (RectGeom){ center_x - top_sep, sy + margin + tog_hh, tog_hw, tog_hh };
+    L->menu_btn   = (RectGeom){ center_x + top_sep, sy + margin + tog_hh, tog_hw, tog_hh };
 }
 
 static int hit_rect(const RectGeom *r, float x, float y, float pad)
@@ -219,7 +238,7 @@ static void recompute_pad_mask(void)
     unsigned mask = 0;
     int i;
 
-    if (!g_visible) {
+    if (!host_settings_get()->touch_visible || host_imgui_is_open()) {
         g_pad_mask = 0;
         return;
     }
@@ -310,11 +329,20 @@ void host_touch_on_event(const SDL_Event *ev)
         g_fingers[slot].nx = ev->tfinger.x;
         g_fingers[slot].ny = ev->tfinger.y;
 
-        if (hit_rect(&L.toggle_btn, x, y, 12.0f)) {
-            g_fingers[slot].role = FINGER_ROLE_TOGGLE;
-            g_visible = !g_visible;
+        if (hit_rect(&L.menu_btn, x, y, 12.0f)) {
+            g_fingers[slot].role = FINGER_ROLE_MENU;
+            host_imgui_toggle();
             g_last_down_claimed = 1;
-        } else if (g_visible && point_hits_vpad(&L, x, y)) {
+        } else if (host_imgui_is_open()) {
+            g_fingers[slot].role = FINGER_ROLE_STYLUS;
+            g_last_down_claimed = 0;
+        } else if (hit_rect(&L.toggle_btn, x, y, 12.0f)) {
+            PokebwSettings *cfg = host_settings_get();
+            g_fingers[slot].role = FINGER_ROLE_TOGGLE;
+            cfg->touch_visible = !cfg->touch_visible;
+            host_settings_save();
+            g_last_down_claimed = 1;
+        } else if (host_settings_get()->touch_visible && point_hits_vpad(&L, x, y)) {
             g_fingers[slot].role = FINGER_ROLE_VPAD;
             g_last_down_claimed = 1;
         } else {
@@ -365,8 +393,9 @@ int host_touch_should_swallow_event(const SDL_Event *ev)
             return 1;
         }
         compute_layout(&L);
-        if (hit_rect(&L.toggle_btn, ev->button.x, ev->button.y, 12.0f) ||
-            (g_visible && point_hits_vpad(&L, ev->button.x, ev->button.y))) {
+        if (hit_rect(&L.menu_btn, ev->button.x, ev->button.y, 12.0f) ||
+            hit_rect(&L.toggle_btn, ev->button.x, ev->button.y, 12.0f) ||
+            (host_settings_get()->touch_visible && point_hits_vpad(&L, ev->button.x, ev->button.y))) {
             return 1;
         }
     } else if (ev->type == SDL_EVENT_MOUSE_BUTTON_UP && ev->button.which == SDL_TOUCH_MOUSEID) {
@@ -386,6 +415,12 @@ int host_touch_override_mouse_state(Uint32 *buttons, float *x, float *y)
 {
     int stylus;
 
+    if (host_imgui_is_open()) {
+        if (buttons != NULL) *buttons = 0;
+        if (x != NULL) *x = 0.0f;
+        if (y != NULL) *y = 0.0f;
+        return 1;
+    }
     if (claimed_finger_count() == 0) {
         return 0;
     }
@@ -418,7 +453,7 @@ void host_touch_apply_keys(bool *keys, int numkeys)
 {
     unsigned m = g_pad_mask;
 
-    if (keys == NULL || m == 0) {
+    if (keys == NULL || m == 0 || host_imgui_is_open() || !host_settings_get()->touch_visible) {
         return;
     }
     if ((m & VPAD_UP)     && SDL_SCANCODE_UP        < numkeys) keys[SDL_SCANCODE_UP] = true;
@@ -699,6 +734,22 @@ static void draw_glyph(char ch, float cx, float cy, float h, float t,
         push_line(ri, cy, cx + w * 0.15f, bt, t, r, g, b, a);
         push_line(cx + w * 0.15f, bt, l, bt, t, r, g, b, a);
         break;
+    case 'M':
+        push_line(l, bt, l, tp, t, r, g, b, a);
+        push_line(l, tp, cx, cy, t, r, g, b, a);
+        push_line(cx, cy, ri, tp, t, r, g, b, a);
+        push_line(ri, tp, ri, bt, t, r, g, b, a);
+        break;
+    case 'N':
+        push_line(l, bt, l, tp, t, r, g, b, a);
+        push_line(l, tp, ri, bt, t, r, g, b, a);
+        push_line(ri, bt, ri, tp, t, r, g, b, a);
+        break;
+    case 'U':
+        push_line(l, tp, l, bt, t, r, g, b, a);
+        push_line(l, bt, ri, bt, t, r, g, b, a);
+        push_line(ri, bt, ri, tp, t, r, g, b, a);
+        break;
     case '^':
         push_line(l, cy + h * 0.2f, cx, tp + h * 0.1f, t, r, g, b, a);
         push_line(cx, tp + h * 0.1f, ri, cy + h * 0.2f, t, r, g, b, a);
@@ -735,23 +786,36 @@ static void draw_label(const char *s, float cx, float cy, float h, float t,
 
 static void build_geometry(const TouchLayout *L)
 {
+    const PokebwSettings *cfg = host_settings_get();
     float thick = fmaxf(2.0f, L->ww < L->wh ? L->ww * 0.0028f : L->wh * 0.0028f);
     unsigned m = g_pad_mask;
+    float op = (float)cfg->touch_opacity / 100.0f;
+    int menu_open = host_imgui_is_open();
+
+    if (op < 0.15f) op = 0.15f;
+    if (op > 1.00f) op = 1.00f;
 
     g_vert_count = 0;
 
-    /* Always draw the small top-center toggle pill */
+    /* Always draw the small top-center PAD and MENU pills */
     {
-        float fa = g_visible ? 0.30f : 0.18f;
-        float ba = g_visible ? 0.65f : 0.45f;
+        float fa = cfg->touch_visible ? 0.30f : 0.18f;
+        float ba = cfg->touch_visible ? 0.65f : 0.45f;
         float th = L->toggle_btn.hh * 0.95f;
         push_pill(&L->toggle_btn, L->toggle_btn.hh, thick * 0.85f,
                   0.10f, 0.12f, 0.16f, fa, 0.78f, 0.84f, 0.94f, ba);
         draw_label("PAD", L->toggle_btn.cx, L->toggle_btn.cy, th, thick * 0.9f,
-                   0.92f, 0.95f, 1.0f, g_visible ? 0.85f : 0.55f);
+                   0.92f, 0.95f, 1.0f, cfg->touch_visible ? 0.85f : 0.55f);
+
+        push_pill(&L->menu_btn, L->menu_btn.hh, thick * 0.85f,
+                  menu_open ? 0.28f : 0.10f, menu_open ? 0.50f : 0.12f, menu_open ? 0.80f : 0.16f,
+                  menu_open ? 0.72f : 0.32f,
+                  0.78f, 0.84f, 0.94f, menu_open ? 0.95f : 0.65f);
+        draw_label("MENU", L->menu_btn.cx, L->menu_btn.cy, th * 0.88f, thick * 0.85f,
+                   0.92f, 0.95f, 1.0f, menu_open ? 0.98f : 0.85f);
     }
 
-    if (!g_visible) {
+    if (!cfg->touch_visible || menu_open) {
         return;
     }
 
@@ -770,28 +834,28 @@ static void build_geometry(const TouchLayout *L)
         RectGeom right = { cx + (inner + arm_len) * 0.5f, cy, (arm_len - inner) * 0.5f, arm_w };
         RectGeom hub   = { cx, cy, arm_w, arm_w };
 
-        push_circle(cx, cy, r * 1.04f, 0.06f, 0.08f, 0.11f, 0.24f);
-        push_ring(cx, cy, r * 1.04f, thick, 0.65f, 0.72f, 0.84f, 0.35f);
+        push_circle(cx, cy, r * 1.04f, 0.06f, 0.08f, 0.11f, 0.24f * op);
+        push_ring(cx, cy, r * 1.04f, thick, 0.65f, 0.72f, 0.84f, 0.35f * op);
 
-        push_pill(&hub, 4.0f, 0.0f, 0.14f, 0.17f, 0.22f, 0.36f, 0, 0, 0, 0);
+        push_pill(&hub, 4.0f, 0.0f, 0.14f, 0.17f, 0.22f, 0.36f * op, 0, 0, 0, 0);
 
         push_pill(&up, arm_w * 0.35f, thick,
                   (m & VPAD_UP) ? 0.35f : 0.14f, (m & VPAD_UP) ? 0.65f : 0.17f, (m & VPAD_UP) ? 0.95f : 0.22f,
-                  (m & VPAD_UP) ? 0.68f : 0.38f, 0.75f, 0.82f, 0.94f, (m & VPAD_UP) ? 0.90f : 0.52f);
+                  ((m & VPAD_UP) ? 0.68f : 0.38f) * op, 0.75f, 0.82f, 0.94f, ((m & VPAD_UP) ? 0.90f : 0.52f) * op);
         push_pill(&down, arm_w * 0.35f, thick,
                   (m & VPAD_DOWN) ? 0.35f : 0.14f, (m & VPAD_DOWN) ? 0.65f : 0.17f, (m & VPAD_DOWN) ? 0.95f : 0.22f,
-                  (m & VPAD_DOWN) ? 0.68f : 0.38f, 0.75f, 0.82f, 0.94f, (m & VPAD_DOWN) ? 0.90f : 0.52f);
+                  ((m & VPAD_DOWN) ? 0.68f : 0.38f) * op, 0.75f, 0.82f, 0.94f, ((m & VPAD_DOWN) ? 0.90f : 0.52f) * op);
         push_pill(&left, arm_w * 0.35f, thick,
                   (m & VPAD_LEFT) ? 0.35f : 0.14f, (m & VPAD_LEFT) ? 0.65f : 0.17f, (m & VPAD_LEFT) ? 0.95f : 0.22f,
-                  (m & VPAD_LEFT) ? 0.68f : 0.38f, 0.75f, 0.82f, 0.94f, (m & VPAD_LEFT) ? 0.90f : 0.52f);
+                  ((m & VPAD_LEFT) ? 0.68f : 0.38f) * op, 0.75f, 0.82f, 0.94f, ((m & VPAD_LEFT) ? 0.90f : 0.52f) * op);
         push_pill(&right, arm_w * 0.35f, thick,
                   (m & VPAD_RIGHT) ? 0.35f : 0.14f, (m & VPAD_RIGHT) ? 0.65f : 0.17f, (m & VPAD_RIGHT) ? 0.95f : 0.22f,
-                  (m & VPAD_RIGHT) ? 0.68f : 0.38f, 0.75f, 0.82f, 0.94f, (m & VPAD_RIGHT) ? 0.90f : 0.52f);
+                  ((m & VPAD_RIGHT) ? 0.68f : 0.38f) * op, 0.75f, 0.82f, 0.94f, ((m & VPAD_RIGHT) ? 0.90f : 0.52f) * op);
 
-        draw_glyph('^', up.cx,    up.cy,    ch_sz, thick * 1.1f, 0.92f, 0.96f, 1.0f, (m & VPAD_UP)    ? 0.95f : 0.68f);
-        draw_glyph('v', down.cx,  down.cy,  ch_sz, thick * 1.1f, 0.92f, 0.96f, 1.0f, (m & VPAD_DOWN)  ? 0.95f : 0.68f);
-        draw_glyph('<', left.cx,  left.cy,  ch_sz, thick * 1.1f, 0.92f, 0.96f, 1.0f, (m & VPAD_LEFT)  ? 0.95f : 0.68f);
-        draw_glyph('>', right.cx, right.cy, ch_sz, thick * 1.1f, 0.92f, 0.96f, 1.0f, (m & VPAD_RIGHT) ? 0.95f : 0.68f);
+        draw_glyph('^', up.cx,    up.cy,    ch_sz, thick * 1.1f, 0.92f, 0.96f, 1.0f, ((m & VPAD_UP)    ? 0.95f : 0.68f) * op);
+        draw_glyph('v', down.cx,  down.cy,  ch_sz, thick * 1.1f, 0.92f, 0.96f, 1.0f, ((m & VPAD_DOWN)  ? 0.95f : 0.68f) * op);
+        draw_glyph('<', left.cx,  left.cy,  ch_sz, thick * 1.1f, 0.92f, 0.96f, 1.0f, ((m & VPAD_LEFT)  ? 0.95f : 0.68f) * op);
+        draw_glyph('>', right.cx, right.cy, ch_sz, thick * 1.1f, 0.92f, 0.96f, 1.0f, ((m & VPAD_RIGHT) ? 0.95f : 0.68f) * op);
     }
 
     /* Face buttons: A, B, X, Y */
@@ -809,12 +873,12 @@ static void build_geometry(const TouchLayout *L)
         for (i = 0; i < 4; i++) {
             int pressed = (m & bits[i]) != 0;
             const CircleGeom *c = &L->face[i];
-            float fa = pressed ? 0.65f : 0.28f;
-            float ba = pressed ? 0.95f : 0.58f;
+            float fa = (pressed ? 0.65f : 0.28f) * op;
+            float ba = (pressed ? 0.95f : 0.58f) * op;
             push_circle(c->cx, c->cy, c->r, cols[i][0], cols[i][1], cols[i][2], fa);
             push_ring(c->cx, c->cy, c->r, thick * 1.15f, cols[i][0], cols[i][1], cols[i][2], ba);
             draw_glyph(labels[i], c->cx, c->cy, c->r * 0.72f, thick * 1.15f,
-                       0.96f, 0.98f, 1.0f, pressed ? 0.98f : 0.80f);
+                       0.96f, 0.98f, 1.0f, (pressed ? 0.98f : 0.80f) * op);
         }
     }
 
@@ -837,10 +901,10 @@ static void build_geometry(const TouchLayout *L)
             const RectGeom *rc = pills[i].rc;
             push_pill(rc, rc->hh, thick,
                       pressed ? 0.35f : 0.12f, pressed ? 0.62f : 0.15f, pressed ? 0.95f : 0.20f,
-                      pressed ? 0.68f : 0.34f,
-                      0.78f, 0.85f, 0.96f, pressed ? 0.95f : 0.56f);
+                      (pressed ? 0.68f : 0.34f) * op,
+                      0.78f, 0.85f, 0.96f, (pressed ? 0.95f : 0.56f) * op);
             draw_label(pills[i].txt, rc->cx, rc->cy, rc->hh * 0.92f, thick,
-                       0.94f, 0.96f, 1.0f, pressed ? 0.98f : 0.78f);
+                       0.94f, 0.96f, 1.0f, (pressed ? 0.98f : 0.78f) * op);
         }
     }
 }

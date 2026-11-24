@@ -32,6 +32,7 @@
 #include <SDL3/SDL_main.h>
 
 #include "host.h"
+#include "imgui_overlay.h"
 #include "touch_controls.h"
 
 /* ------------------------------------------------------------------ */
@@ -606,6 +607,7 @@ u32 w2c_env_SDL_GL_DestroyContext(struct w2c_env *e, u32 c)
     u32 rc;
 
     (void)e;
+    host_imgui_shutdown();
     host_touch_gl_reset();
     rc = SDL_GL_DestroyContext((SDL_GLContext)handle_ptr(c));
     handle_drop(c);
@@ -648,6 +650,7 @@ u32 w2c_env_SDL_GL_SwapWindow(struct w2c_env *e, u32 w)
     }
     if (!on) {
         host_touch_render(win);
+        host_imgui_render(win);
         return SDL_GL_SwapWindow(win);
     }
     t0 = SDL_GetTicksNS();
@@ -657,6 +660,7 @@ u32 w2c_env_SDL_GL_SwapWindow(struct w2c_env *e, u32 w)
         start = t0;
     }
     host_touch_render(win);
+    host_imgui_render(win);
     rc = SDL_GL_SwapWindow(win);
     t1 = SDL_GetTicksNS();
     swap += t1 - t0;
@@ -858,7 +862,7 @@ u32 w2c_env_SDL_PollEvent(struct w2c_env *e, u32 out)
     (void)e;
     while (SDL_PollEvent(&ev)) {
         host_touch_on_event(&ev);
-        if (host_touch_should_swallow_event(&ev)) {
+        if (host_imgui_process_event(&ev) || host_touch_should_swallow_event(&ev)) {
             continue;
         }
         app_event(&ev);
@@ -879,10 +883,10 @@ u32 w2c_env_SDL_WaitEventTimeout(struct w2c_env *e, u32 out, u32 ms)
         return 0;
     }
     host_touch_on_event(&ev);
-    if (host_touch_should_swallow_event(&ev)) {
+    if (host_imgui_process_event(&ev) || host_touch_should_swallow_event(&ev)) {
         while (SDL_PollEvent(&ev)) {
             host_touch_on_event(&ev);
-            if (!host_touch_should_swallow_event(&ev)) {
+            if (!host_imgui_process_event(&ev) && !host_touch_should_swallow_event(&ev)) {
                 app_event(&ev);
                 if (out != 0) {
                     event_to_module(&ev, out);

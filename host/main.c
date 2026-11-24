@@ -44,6 +44,7 @@
 #include "host.h"
 #include "picker.h"
 #include "plat_save.h"
+#include "pokebw_settings.h"
 #include "setup.h"
 #include "wasm-rt-exceptions.h"
 #include "wasm-rt-impl.h"
@@ -102,6 +103,12 @@ void w2c_eidos_console_open(struct w2c_eidos *e)
     (void)freopen("CONOUT$", "w", stdout);
     (void)freopen("CONOUT$", "w", stderr);
 #endif
+}
+
+u32 w2c_eidos_setting_get(struct w2c_eidos *e, u32 id)
+{
+    (void)e;
+    return (u32)host_settings_get_by_id((int)id);
 }
 
 /* The heap's lock (sdk/wasm_heap.c): one recursive mutex for the module's
@@ -392,6 +399,7 @@ static char **mobile_args(int *argc)
     snprintf(data, sizeof data, "%sextract", pref);
     snprintf(prof, sizeof prof, "%sprofile", pref);
     SDL_CreateDirectory(prof);
+    host_settings_init(prof);
     argv[n++] = "eidos";
     argv[n++] = "--no-window";
     argv[n++] = "--data-root";

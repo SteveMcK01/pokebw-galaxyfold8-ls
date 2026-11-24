@@ -18,7 +18,7 @@
 # with OpenGL ES 3.0 (HOST_GLES, host/sdl.c).
 
 cmake_minimum_required(VERSION 3.16)
-project(eidos_host C)
+project(eidos_host C CXX)
 
 set(EIDOS_WASM_MODULE "" CACHE FILEPATH "the stage one module (eidos_boot.wasm)")
 set(WABT_ROOT "" CACHE PATH "wabt's source tree (its wasm2c/ runtime)")
@@ -29,6 +29,7 @@ option(EIDOS_HOST_FPCAST
        "--fpcast-emu (OFF: a diagnostic build that logs calls through pointers of another type)" ON)
 set(SDL3_PREFIX "" CACHE PATH "SDL3: a prefix with include/SDL3 and the library")
 set(EIDOS_HOST_SDL_SOURCE "" CACHE PATH "SDL3's source tree, built with the program (Android, iOS)")
+set(EIDOS_HOST_IMGUI_ROOT "" CACHE PATH "Dear ImGui source tree (Android overlay)")
 set(EIDOS_HOST_PARTS 32 CACHE STRING "how many C files wasm2c writes")
 option(EIDOS_HOST_WINDOWED "Windows: a windowed program with no console (a release)" OFF)
 # Consoles (the Switch, the Vita): no room for wasm2c's 8 GiB of guard pages
@@ -126,6 +127,7 @@ set(_host_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/wasi.c
     ${CMAKE_CURRENT_SOURCE_DIR}/sdl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/sdl_gpu.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/pokebw_settings.c
     ${_root}/install/picker.c
     ${_root}/install/location.c
     ${_root}/sdk/plat_save.c
@@ -136,6 +138,19 @@ if(ANDROID OR IOS)
 endif()
 if(ANDROID)
     list(APPEND _host_sources ${CMAKE_CURRENT_SOURCE_DIR}/touch_controls.c)
+    if(EIDOS_HOST_IMGUI_ROOT AND EXISTS "${EIDOS_HOST_IMGUI_ROOT}/imgui.cpp")
+        set(CMAKE_CXX_STANDARD 17)
+        set(CMAKE_CXX_STANDARD_REQUIRED ON)
+        list(APPEND _host_sources
+            ${CMAKE_CURRENT_SOURCE_DIR}/imgui_overlay.cpp
+            ${EIDOS_HOST_IMGUI_ROOT}/imgui.cpp
+            ${EIDOS_HOST_IMGUI_ROOT}/imgui_draw.cpp
+            ${EIDOS_HOST_IMGUI_ROOT}/imgui_tables.cpp
+            ${EIDOS_HOST_IMGUI_ROOT}/imgui_widgets.cpp
+            ${EIDOS_HOST_IMGUI_ROOT}/backends/imgui_impl_sdl3.cpp
+            ${EIDOS_HOST_IMGUI_ROOT}/backends/imgui_impl_opengl3.cpp)
+        set(_eidos_has_imgui TRUE)
+    endif()
 endif()
 if(IOS)
     enable_language(OBJC)
@@ -176,6 +191,12 @@ target_include_directories(eidos PRIVATE
     ${_root}/sdk
     ${WABT_ROOT}/wasm2c
     ${_sdl_include})
+if(_eidos_has_imgui)
+    target_include_directories(eidos PRIVATE
+        ${EIDOS_HOST_IMGUI_ROOT}
+        ${EIDOS_HOST_IMGUI_ROOT}/backends)
+    target_compile_definitions(eidos PRIVATE HOST_IMGUI=1 IMGUI_IMPL_OPENGL_ES3=1)
+endif()
 if(ANDROID OR IOS)
     target_compile_definitions(eidos PRIVATE HOST_GLES=1)
 endif()

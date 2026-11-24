@@ -74,6 +74,8 @@ BW_WASM_IMPORT(heap_unlock) void bw_host_heap_unlock(void);
 /* A console window for the program's messages (sdk/plat_crash.h,
  * bw_plat_console_open), where the platform has such a thing. */
 BW_WASM_IMPORT(console_open) void bw_host_console_open(void);
+/* PokeBW Fold persistent settings (host/pokebw_settings.c, sdk/pokebw_settings_ids.h). */
+BW_WASM_IMPORT(setting_get) int bw_host_setting_get(int id);
 
 /* TCP sockets for the relay (sdk/mod_net.c): the host's own, all
  * non-blocking, named by small numbers.  sock_connect: 0 connected, 1 in

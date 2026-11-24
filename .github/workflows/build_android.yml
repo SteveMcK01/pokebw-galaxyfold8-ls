@@ -27,6 +27,7 @@ jobs:
       EIDOS_WAMR_CACHE: ${{ github.workspace }}/.cache/wamr
       EIDOS_MBEDTLS_CACHE: ${{ github.workspace }}/.cache/mbedtls
       EIDOS_WASM_CACHE: ${{ github.workspace }}/.cache/wasm
+      EIDOS_IMGUI_CACHE: ${{ github.workspace }}/.cache/imgui
     steps:
       - name: Cache apt packages
         uses: actions/cache@v4
@@ -68,7 +69,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: deps-android-${{ hashFiles('tools/fetch_sdl.py', 'tools/fetch_wamr.py', 'tools/fetch_mbedtls.py', 'tools/fetch_wasm.py') }}
+          key: deps-android-${{ hashFiles('tools/fetch_sdl.py', 'tools/fetch_wamr.py', 'tools/fetch_mbedtls.py', 'tools/fetch_wasm.py', 'tools/fetch_imgui.py') }}
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -78,13 +79,14 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/build.gradle', 'android/app/build.gradle') }}
 
-      - name: Fetch SDL3, WAMR, Mbed TLS, and wasm toolchain
+      - name: Fetch SDL3, WAMR, Mbed TLS, ImGui, and wasm toolchain
         run: |
           (
             python3 tools/fetch_sdl.py --flavor mingw
             python3 tools/fetch_sdl.py --flavor source
             python3 tools/fetch_wamr.py
             python3 tools/fetch_mbedtls.py
+            python3 tools/fetch_imgui.py
             python3 tools/fetch_wasm.py
           )
 

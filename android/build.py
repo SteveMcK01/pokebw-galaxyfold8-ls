@@ -79,6 +79,7 @@ def main():
     nd = ndk(sdk, a.ndk)
     # "SDL3 <version> source ready in <folder>"
     sdl = last_line("fetch_sdl.py", "--flavor", "source").split(" ready in ", 1)[-1]
+    imgui = last_line("fetch_imgui.py")
     t = wasm_tools()
     build = os.path.abspath(a.build_dir)
     gen = ["-G", "Ninja"] if shutil.which("ninja") else []
@@ -88,10 +89,12 @@ def main():
         "-DCMAKE_TOOLCHAIN_FILE=%s/build/cmake/android.toolchain.cmake" % nd,
         "-DANDROID_ABI=" + ABI, "-DANDROID_PLATFORM=" + a.platform,
         "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+        "-DANDROID_STL=c++_static",
         "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_C_FLAGS=-O2",
         "-DEIDOS_WASM_MODULE=" + os.path.abspath(a.module),
         "-DWABT_ROOT=" + t["WABT_ROOT"], "-DWASM2C=" + t["WASM2C"], "-DWASM_OPT=" + t["WASM_OPT"],
-        "-DEIDOS_HOST_SDL_SOURCE=" + sdl], env=env)
+        "-DEIDOS_HOST_SDL_SOURCE=" + sdl,
+        "-DEIDOS_HOST_IMGUI_ROOT=" + imgui], env=env)
     run(["cmake", "--build", build, "--parallel", str(a.jobs), "--target", "eidos", "SDL3-shared"], env=env)
 
     libs = os.path.join(build, "jniLibs", ABI)

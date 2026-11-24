@@ -570,6 +570,8 @@ u32 w2c_env_SDL_GL_CreateContext(struct w2c_env *e, u32 w)
     SDL_GLContext c;
 
     (void)e;
+    host_imgui_shutdown();
+    host_touch_gl_reset();
     c = SDL_GL_CreateContext((SDL_Window *)handle_ptr(w));
 #if defined(HOST_GL_ES_FALLBACK)
     /* The Switch: Mesa's desktop OpenGL first (the shaders as they are, the

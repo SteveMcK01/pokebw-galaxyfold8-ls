@@ -106,7 +106,23 @@ static void update_window_metrics(SDL_Window *win)
         g_win_w = (float)ww;
         g_win_h = (float)wh;
         if (SDL_GetWindowSafeArea(win, &safe) && safe.w > 0 && safe.h > 0) {
-            g_safe = safe;
+            int x0 = safe.x < 0 ? 0 : safe.x;
+            int y0 = safe.y < 0 ? 0 : safe.y;
+            int x1 = safe.x + safe.w;
+            int y1 = safe.y + safe.h;
+            if (x1 > ww) x1 = ww;
+            if (y1 > wh) y1 = wh;
+            if (x1 > x0 && y1 > y0) {
+                g_safe.x = x0;
+                g_safe.y = y0;
+                g_safe.w = x1 - x0;
+                g_safe.h = y1 - y0;
+            } else {
+                g_safe.x = 0;
+                g_safe.y = 0;
+                g_safe.w = ww;
+                g_safe.h = wh;
+            }
         } else {
             g_safe.x = 0;
             g_safe.y = 0;
@@ -551,6 +567,8 @@ static int ensure_gl(void)
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(TouchVertex),
                           (const void *)offsetof(TouchVertex, r));
+    fprintf(stderr, "eidos: touch_controls GLES3 ready (prog=%u vao=%u vbo=%u)\n",
+            (unsigned)g_prog, (unsigned)g_vao, (unsigned)g_vbo);
     return 1;
 }
 
@@ -915,6 +933,8 @@ void host_touch_render(SDL_Window *window)
     int pw = 0, ph = 0;
     GLint prev_fbo = 0, prev_prog = 0, prev_vao = 0, prev_vbo = 0, prev_vp[4] = { 0 };
     GLint prev_src_rgb = 0, prev_dst_rgb = 0, prev_src_a = 0, prev_dst_a = 0;
+    GLint prev_eq_rgb = 0, prev_eq_a = 0;
+    GLboolean prev_cmask[4] = { GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE };
     GLboolean prev_blend, prev_depth, prev_cull, prev_scissor;
 
     if (window == NULL || SDL_GL_GetCurrentContext() == NULL) {
@@ -924,9 +944,6 @@ void host_touch_render(SDL_Window *window)
     if (!SDL_GetWindowSizeInPixels(window, &pw, &ph) || pw <= 0 || ph <= 0) {
         return;
     }
-    if (!ensure_gl()) {
-        return;
-    }
 
     compute_layout(&L);
     build_geometry(&L);
@@ -934,7 +951,7 @@ void host_touch_render(SDL_Window *window)
         return;
     }
 
-    /* Save GLES3 state */
+    /* Save GLES3 state BEFORE ensure_gl() so initial VAO/VBO setup never clobbers caller bindings */
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
     glGetIntegerv(GL_VIEWPORT, prev_vp);
     glGetIntegerv(GL_CURRENT_PROGRAM, &prev_prog);
@@ -944,32 +961,41 @@ void host_touch_render(SDL_Window *window)
     glGetIntegerv(GL_BLEND_DST_RGB, &prev_dst_rgb);
     glGetIntegerv(GL_BLEND_SRC_ALPHA, &prev_src_a);
     glGetIntegerv(GL_BLEND_DST_ALPHA, &prev_dst_a);
+    glGetIntegerv(GL_BLEND_EQUATION_RGB, &prev_eq_rgb);
+    glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &prev_eq_a);
+    glGetBooleanv(GL_COLOR_WRITEMASK, prev_cmask);
     prev_blend   = glIsEnabled(GL_BLEND);
     prev_depth   = glIsEnabled(GL_DEPTH_TEST);
     prev_cull    = glIsEnabled(GL_CULL_FACE);
     prev_scissor = glIsEnabled(GL_SCISSOR_TEST);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glViewport(0, 0, pw, ph);
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_CULL_FACE);
-    glDisable(GL_SCISSOR_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (ensure_gl()) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, pw, ph);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_SCISSOR_TEST);
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_FUNC_ADD);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    glUseProgram(g_prog);
-    glBindVertexArray(g_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)((size_t)g_vert_count * sizeof(TouchVertex)),
-                 g_verts, GL_STREAM_DRAW);
-    glDrawArrays(GL_TRIANGLES, 0, g_vert_count);
+        glUseProgram(g_prog);
+        glBindVertexArray(g_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)((size_t)g_vert_count * sizeof(TouchVertex)),
+                     g_verts, GL_STREAM_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, g_vert_count);
+    }
 
     /* Restore GLES3 state */
     glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prev_vbo);
     glBindVertexArray((GLuint)prev_vao);
     glUseProgram((GLuint)prev_prog);
+    glBlendEquationSeparate((GLenum)prev_eq_rgb, (GLenum)prev_eq_a);
     glBlendFuncSeparate((GLenum)prev_src_rgb, (GLenum)prev_dst_rgb,
                         (GLenum)prev_src_a, (GLenum)prev_dst_a);
+    glColorMask(prev_cmask[0], prev_cmask[1], prev_cmask[2], prev_cmask[3]);
     if (!prev_blend)  glDisable(GL_BLEND);
     if (prev_depth)   glEnable(GL_DEPTH_TEST);
     if (prev_cull)    glEnable(GL_CULL_FACE);

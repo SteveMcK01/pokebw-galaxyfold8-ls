@@ -419,6 +419,7 @@ static char **mobile_args(int *argc)
 #endif
 #if defined(__ANDROID__)
     setenv("EIDOS_EDGE_MARGIN", "2", 1);
+    setenv("EIDOS_RENDERER", "gl", 1);
 #endif
 #if defined(__SWITCH__)
     /* the first-run screen names the ROM's folder (host/pick_switch.c) */

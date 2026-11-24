@@ -38,15 +38,6 @@
 _Static_assert(EIDOS_OPT_COUNT == POKEBW_EIDOS_OPT_COUNT, "option count mismatch");
 _Static_assert(EIDOS_OPT_LAYOUT_ARRANGEMENT == POKEBW_EIDOS_OPT_LAYOUT, "layout id mismatch");
 _Static_assert(EIDOS_OPT_WEATHER_HAZE == POKEBW_EIDOS_OPT_WEATHER_HAZE, "weather haze id mismatch");
-
-static void sync_host_all(void)
-{
-    int id;
-
-    for (id = 0; id < EIDOS_OPT_COUNT; id++) {
-        bw_host_eidos_opt_sync(id, g_cur.v[id]);
-    }
-}
 #endif
 
 #define NBTN 12
@@ -2628,6 +2619,17 @@ void eidos_settings_fill_config(EidosPlatformConfig *cfg)
     cfg->display_mode = g_cur.v[EIDOS_OPT_DISPLAY_MODE];
     cfg->maximized = g_cur.v[EIDOS_OPT_DISPLAY_MAXIMIZED];
 }
+
+#if defined(__wasm__)
+static void sync_host_all(void)
+{
+    int id;
+
+    for (id = 0; id < EIDOS_OPT_COUNT; id++) {
+        bw_host_eidos_opt_sync(id, g_cur.v[id]);
+    }
+}
+#endif
 
 void eidos_settings_attach(EidosPlatform *p)
 {

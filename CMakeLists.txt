@@ -3376,6 +3376,15 @@ if(NOT _eidos_ovls STREQUAL "")
             "-Wl,--wrap=ov091_POKELIST_DispatchMenuChoice")
     endif()
 
+    # PokeBW Fold Phase 1.4: Gotta Catch 'Em All! Mode (ov010 LoadEncountData wrap)
+    if(NOT MSVC AND NOT APPLE AND EIDOS_BOOT AND
+       (_eidos_ovls STREQUAL "ALL" OR ";${_eidos_ovls};" MATCHES ";10;"))
+        target_sources(eidos_boot PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_catch_em_all.c)
+        target_link_options(eidos_boot PRIVATE
+            "-Wl,--wrap=ov010_FIELD_ENCOUNT_ST_LoadEncountData")
+    endif()
+
     # test_ovlink_title: every overlay of the set loaded from the extract in
     # turn, its tables checked against the player's files.  Without the
     # boot only: with it the overlays' ARM9 callees are the boot's, and

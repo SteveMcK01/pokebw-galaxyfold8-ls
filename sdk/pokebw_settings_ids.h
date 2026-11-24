@@ -29,6 +29,8 @@ enum {
     POKEBW_SET_NO_RANDOM_ENCOUNTERS  = 32,
     POKEBW_SET_ALWAYS_BITE_FISHING   = 33,
     POKEBW_SET_INSTANT_TEXT          = 34,
+    POKEBW_SET_SEASON_OVERRIDE       = 35, /* 0 Auto, 1 Spring, 2 Summer, 3 Autumn, 4 Winter */
+    POKEBW_SET_CLOCK_OVERRIDE        = 36, /* 0 Auto, 1 Morning, 2 Day, 3 Evening, 4 Night */
 };
 
 /* Mirror of engine/platform/settings.h EIDOS_OPT_* IDs exposed to ImGui. */

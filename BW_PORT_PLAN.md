@@ -23,7 +23,7 @@
 6. **Portable PC Box Access / PC Anywhere (Done):** Launch Unova `BoxApp` (`ov170`, Organize Boxes or Move Items) from the ImGui overlay anywhere while free-roaming on the overworld with cutscene/battle/comm/wipe guardrails (renders natively in `eidos`'s one-screen PC recipe).
 
 ### Phase 2: Fast-Follow QoL, Battle HUD & Gear Radar (Low -> Medium)
-1. **QoL & Cheats (Low):** Instant Text and Fast/Seamless Map Transitions are already provided by `eidos` and wired into our ImGui menu; remaining items are Hard Level Cap, No Random Encounters, Always Bite When Fishing, and Season & Clock switcher.
+1. **QoL & Cheats (Done):** Instant Text and Fast/Seamless Map Transitions are wired from `eidos`; added Hard Level Cap (Unova badge caps), No Random Encounters, Always Bite When Fishing, and Season & Clock Switcher.
 2. **Gen 5 Battle HUD Enhancements (Low-Medium):** `eidos`'s `engine/ui/recipe_battle.c` already provides the full one-screen touch Battle HUD (Action/Move/Target cards, real-map backdrops, move colors, battle Bag/Party); focus on adding live type-effectiveness pills (`2x` / `4x` / `0.5x` / `0x`, Teravolt/Turboblaze-aware) directly into `recipe_battle.c` without conflicting with `eidos`.
 3. **Gear Companion & Unova Route Radar (Medium):** Party move-pill cards, save slots, and live encounter radar supporting Seasons, Dark Grass, and Phenomena.
 

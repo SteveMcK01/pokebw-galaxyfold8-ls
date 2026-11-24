@@ -33,6 +33,8 @@ typedef struct {
     int no_random_encounters;
     int always_bite_fishing;
     int instant_text;
+    int season_override; /* 0 Auto, 1 Spring, 2 Summer, 3 Autumn, 4 Winter */
+    int clock_override;  /* 0 Auto, 1 Morning, 2 Day, 3 Evening, 4 Night */
 
     /* Save */
     char save_dir[1024];

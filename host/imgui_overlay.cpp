@@ -329,9 +329,31 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     ImGui::Separator();
                     ImGui::TextDisabled("Phase 2 QoL toggles:");
                     ImGui::Spacing();
-                    setting_checkbox("Hard Level Cap", nullptr, &cfg->hard_level_cap);
-                    setting_checkbox("No Random Encounters", nullptr, &cfg->no_random_encounters);
-                    setting_checkbox("Always Bite When Fishing", nullptr, &cfg->always_bite_fishing);
+                    setting_checkbox("Hard Level Cap",
+                                     "Caps battle EXP at the next Unova Gym/League ace level (14/20/23/27/31/35/39/43/54). Turn off post-game for Lv. 100.",
+                                     &cfg->hard_level_cap);
+                    setting_checkbox("No Random Encounters",
+                                     "Disables wild grass/cave/water step encounters (Sweet Scent and shaking-grass phenomena still work).",
+                                     &cfg->no_random_encounters);
+                    setting_checkbox("Always Bite When Fishing",
+                                     "Guarantees a bite whenever fishing in valid water.",
+                                     &cfg->always_bite_fishing);
+                    {
+                        static const char *const k_seasons[] = { "Auto", "Spring", "Summer", "Autumn", "Winter" };
+                        static const char *const k_clocks[] = { "Auto", "Morning (07:00)", "Day (13:00)", "Evening (18:00)", "Night (22:00)" };
+                        int season = std::clamp(cfg->season_override, 0, 4);
+                        if (ImGui::Combo("Season Override", &season, k_seasons, 5)) {
+                            cfg->season_override = season;
+                            host_settings_save();
+                        }
+                        help_marker("Overrides Unova's season (takes full visual effect on next map/door transition).");
+                        int clock_ov = std::clamp(cfg->clock_override, 0, 4);
+                        if (ImGui::Combo("Time of Day Override", &clock_ov, k_clocks, 5)) {
+                            cfg->clock_override = clock_ov;
+                            host_settings_save();
+                        }
+                        help_marker("Overrides lighting, battle sky, and time-of-day evolutions without changing your save's calendar date.");
+                    }
                     ImGui::Separator();
                     ImGui::TextDisabled("Save Data (Standard 512 KiB DS .sav):");
                     ImGui::Spacing();

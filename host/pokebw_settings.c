@@ -91,6 +91,8 @@ static void parse_ini_line(const char *section, const char *key, const char *val
         else if (strcmp(key, "no_random_encounters") == 0) g_settings.no_random_encounters = parse_bool(val);
         else if (strcmp(key, "always_bite_fishing") == 0) g_settings.always_bite_fishing = parse_bool(val);
         else if (strcmp(key, "instant_text") == 0) g_settings.instant_text = parse_bool(val);
+        else if (strcmp(key, "season_override") == 0) g_settings.season_override = clamp_int(atoi(val), 0, 4);
+        else if (strcmp(key, "clock_override") == 0) g_settings.clock_override = clamp_int(atoi(val), 0, 4);
     } else if (strcmp(section, "Save") == 0) {
         if (strcmp(key, "save_dir") == 0) {
             snprintf(g_settings.save_dir, sizeof(g_settings.save_dir), "%s", val);
@@ -198,6 +200,8 @@ int host_settings_get_by_id(int id)
     case POKEBW_SET_NO_RANDOM_ENCOUNTERS: return s->no_random_encounters;
     case POKEBW_SET_ALWAYS_BITE_FISHING:  return s->always_bite_fishing;
     case POKEBW_SET_INSTANT_TEXT:         return s->instant_text;
+    case POKEBW_SET_SEASON_OVERRIDE:      return s->season_override;
+    case POKEBW_SET_CLOCK_OVERRIDE:       return s->clock_override;
     default:                              return 0;
     }
 }
@@ -249,7 +253,9 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             "hard_level_cap = %d\n"
             "no_random_encounters = %d\n"
             "always_bite_fishing = %d\n"
-            "instant_text = %d\n\n"
+            "instant_text = %d\n"
+            "season_override = %d\n"
+            "clock_override = %d\n\n"
             "[Save]\n"
             "save_dir = %s\n",
             s->touch_visible ? 1 : 0,
@@ -267,6 +273,8 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             s->no_random_encounters ? 1 : 0,
             s->always_bite_fishing ? 1 : 0,
             s->instant_text ? 1 : 0,
+            clamp_int(s->season_override, 0, 4),
+            clamp_int(s->clock_override, 0, 4),
             s->save_dir);
     if (ferror(f) || fclose(f) != 0) {
         return -1;

@@ -20,6 +20,7 @@
  */
 
 #include "settings.h"
+#include "pokebw_settings_ids.h"
 
 #include <stdint.h>
 
@@ -59,7 +60,10 @@ struct BmpWin *eidos_text_last_window(uint32_t *count)
 
 static int32_t instant(int32_t wait)
 {
-    return eidos_settings_get(EIDOS_OPT_EXTRAS_INSTANT_TEXT) ? INSTANT_WAIT : wait;
+    return (eidos_settings_get(EIDOS_OPT_EXTRAS_INSTANT_TEXT) ||
+            bw_pokebw_setting(POKEBW_SET_INSTANT_TEXT))
+               ? INSTANT_WAIT
+               : wait;
 }
 
 struct TextPrinter *__wrap_PRINTSYS_PrintStream(

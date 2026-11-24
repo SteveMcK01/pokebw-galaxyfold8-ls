@@ -3039,7 +3039,8 @@ option(EIDOS_BOOT
 
 add_executable(eidos_boot ${CMAKE_CURRENT_SOURCE_DIR}/demo/eidos_boot.c)
 target_include_directories(eidos_boot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform
-    ${CMAKE_CURRENT_SOURCE_DIR}/engine/avatar)
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/avatar
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk)
 if(VITA)
     # sdk/plat_crash.c catches calls to DS code addresses through kubridge
     target_link_libraries(eidos PUBLIC kubridge_stub)
@@ -3177,6 +3178,14 @@ if(NOT MSVC AND NOT APPLE AND EIDOS_BOOT AND TARGET eidos_platform)
         "-Wl,--wrap=PRINTSYS_PrintStream"
         "-Wl,--wrap=PRINTSYS_PrintStreamCallBack"
         "-Wl,--wrap=PRINTSYS_PrintStreamSetSpeed")
+endif()
+
+# PokeBW Fold gameplay hooks (Phase 1.1: Trade Evolution Fixes)
+if(NOT MSVC AND NOT APPLE AND EIDOS_BOOT)
+    target_sources(eidos_boot PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_trade_evo.c)
+    target_link_options(eidos_boot PRIVATE
+        "-Wl,--wrap=SHINKA_CHECK_CheckEvolution")
 endif()
 
 # The one-screen layout's battle backdrop (docs/battle-backdrop.md): the

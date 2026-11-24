@@ -32,6 +32,7 @@
 #include <SDL3/SDL_main.h>
 
 #include "host.h"
+#include "touch_controls.h"
 
 /* ------------------------------------------------------------------ */
 /* Handles                                                             */
@@ -605,6 +606,7 @@ u32 w2c_env_SDL_GL_DestroyContext(struct w2c_env *e, u32 c)
     u32 rc;
 
     (void)e;
+    host_touch_gl_reset();
     rc = SDL_GL_DestroyContext((SDL_GLContext)handle_ptr(c));
     handle_drop(c);
     return rc;
@@ -638,13 +640,15 @@ u32 w2c_env_SDL_GL_SwapWindow(struct w2c_env *e, u32 w)
     static int n;
     Uint64 t0, t1;
     u32 rc;
+    SDL_Window *win = (SDL_Window *)handle_ptr(w);
 
     (void)e;
     if (on < 0) {
         on = getenv("EIDOS_FPS") != NULL;
     }
     if (!on) {
-        return SDL_GL_SwapWindow((SDL_Window *)handle_ptr(w));
+        host_touch_render(win);
+        return SDL_GL_SwapWindow(win);
     }
     t0 = SDL_GetTicksNS();
     if (last != 0) {
@@ -652,7 +656,8 @@ u32 w2c_env_SDL_GL_SwapWindow(struct w2c_env *e, u32 w)
     } else {
         start = t0;
     }
-    rc = SDL_GL_SwapWindow((SDL_Window *)handle_ptr(w));
+    host_touch_render(win);
+    rc = SDL_GL_SwapWindow(win);
     t1 = SDL_GetTicksNS();
     swap += t1 - t0;
     last = t1;
@@ -674,17 +679,38 @@ u32 w2c_env_SDL_GetKeyboardState(struct w2c_env *e, u32 numkeys)
 {
     int n = 0;
     const bool *k = SDL_GetKeyboardState(&n);
+    bool merged[SDL_SCANCODE_COUNT];
 
     (void)e;
+    if (k != NULL && n > SDL_SCANCODE_COUNT) {
+        n = SDL_SCANCODE_COUNT;
+    }
     if (numkeys != 0) {
         memcpy(host_ptr(numkeys, 4), &n, 4);
     }
-    return to_module(S_KEYS, k, (size_t)n * sizeof(bool));
+    if (k == NULL || n <= 0) {
+        return to_module(S_KEYS, k, (size_t)n * sizeof(bool));
+    }
+    memcpy(merged, k, (size_t)n * sizeof(bool));
+    host_touch_apply_keys(merged, n);
+    return to_module(S_KEYS, merged, (size_t)n * sizeof(bool));
 }
 
 u32 w2c_env_SDL_GetMouseState(struct w2c_env *e, u32 px, u32 py)
 {
+    float mx = 0.0f, my = 0.0f;
+    Uint32 mask;
+
     (void)e;
+    if (host_touch_override_mouse_state(&mask, &mx, &my)) {
+        if (px != 0) {
+            memcpy(host_ptr(px, 4), &mx, 4);
+        }
+        if (py != 0) {
+            memcpy(host_ptr(py, 4), &my, 4);
+        }
+        return mask;
+    }
     return SDL_GetMouseState((float *)M(px), (float *)M(py));
 }
 
@@ -830,14 +856,18 @@ u32 w2c_env_SDL_PollEvent(struct w2c_env *e, u32 out)
     SDL_Event ev;
 
     (void)e;
-    if (!SDL_PollEvent(&ev)) {
-        return 0;
+    while (SDL_PollEvent(&ev)) {
+        host_touch_on_event(&ev);
+        if (host_touch_should_swallow_event(&ev)) {
+            continue;
+        }
+        app_event(&ev);
+        if (out != 0) {
+            event_to_module(&ev, out);
+        }
+        return 1;
     }
-    app_event(&ev);
-    if (out != 0) {
-        event_to_module(&ev, out);
-    }
-    return 1;
+    return 0;
 }
 
 u32 w2c_env_SDL_WaitEventTimeout(struct w2c_env *e, u32 out, u32 ms)
@@ -846,6 +876,20 @@ u32 w2c_env_SDL_WaitEventTimeout(struct w2c_env *e, u32 out, u32 ms)
 
     (void)e;
     if (!SDL_WaitEventTimeout(&ev, (Sint32)ms)) {
+        return 0;
+    }
+    host_touch_on_event(&ev);
+    if (host_touch_should_swallow_event(&ev)) {
+        while (SDL_PollEvent(&ev)) {
+            host_touch_on_event(&ev);
+            if (!host_touch_should_swallow_event(&ev)) {
+                app_event(&ev);
+                if (out != 0) {
+                    event_to_module(&ev, out);
+                }
+                return 1;
+            }
+        }
         return 0;
     }
     app_event(&ev);

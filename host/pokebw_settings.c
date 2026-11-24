@@ -15,6 +15,10 @@ static char g_settings_path[1024] = "pokebw_settings.ini";
 static int g_initialized = 0;
 static int g_eidos_opt[POKEBW_EIDOS_OPT_COUNT];
 static unsigned char g_eidos_dirty[POKEBW_EIDOS_OPT_COUNT];
+static int g_pc_req_pending = 0;
+static int g_pc_req_mode = 2;
+static unsigned long long g_pc_req_ms = 0;
+static int g_pc_last_status = 0;
 
 static void apply_control_defaults(PokebwSettings *s)
 {
@@ -29,6 +33,7 @@ static void apply_all_defaults(PokebwSettings *s)
     memset(s, 0, sizeof(*s));
     apply_control_defaults(s);
     s->trade_evo_fix = 1;
+    s->portable_pc = 1;
 }
 
 static int clamp_int(int v, int lo, int hi)
@@ -77,6 +82,7 @@ static void parse_ini_line(const char *section, const char *key, const char *val
         else if (strcmp(key, "hm_freedom") == 0) g_settings.hm_freedom = parse_bool(val);
         else if (strcmp(key, "hm_no_badges") == 0) g_settings.hm_no_badges = parse_bool(val);
         else if (strcmp(key, "catch_em_all") == 0) g_settings.catch_em_all = parse_bool(val);
+        else if (strcmp(key, "portable_pc") == 0) g_settings.portable_pc = parse_bool(val);
     } else if (strcmp(section, "QoL") == 0) {
         if (strcmp(key, "universal_tm") == 0) g_settings.universal_tm = parse_bool(val);
         else if (strcmp(key, "hard_level_cap") == 0) g_settings.hard_level_cap = parse_bool(val);
@@ -177,6 +183,7 @@ int host_settings_get_by_id(int id)
     case POKEBW_SET_HM_FREEDOM:           return s->hm_freedom;
     case POKEBW_SET_HM_NO_BADGES:         return s->hm_no_badges;
     case POKEBW_SET_CATCH_EM_ALL:         return s->catch_em_all;
+    case POKEBW_SET_PORTABLE_PC:          return s->portable_pc;
     case POKEBW_SET_FOLD_PIP_MODE:        return s->fold_pip_mode;
     case POKEBW_SET_UNIVERSAL_TM:         return s->universal_tm;
     case POKEBW_SET_HARD_LEVEL_CAP:       return s->hard_level_cap;
@@ -220,7 +227,8 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             "modern_exp_share = %d\n"
             "hm_freedom = %d\n"
             "hm_no_badges = %d\n"
-            "catch_em_all = %d\n\n"
+            "catch_em_all = %d\n"
+            "portable_pc = %d\n\n"
             "[QoL]\n"
             "universal_tm = %d\n"
             "hard_level_cap = %d\n"
@@ -237,6 +245,7 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             s->hm_freedom ? 1 : 0,
             s->hm_no_badges ? 1 : 0,
             s->catch_em_all ? 1 : 0,
+            s->portable_pc ? 1 : 0,
             s->universal_tm ? 1 : 0,
             s->hard_level_cap ? 1 : 0,
             s->no_random_encounters ? 1 : 0,
@@ -326,4 +335,36 @@ unsigned host_eidos_opt_poll_pending(void)
         }
     }
     return 0u;
+}
+
+void host_pc_request_open(int mode, unsigned long long now_ms)
+{
+    g_pc_req_mode = clamp_int(mode, 0, 3);
+    g_pc_req_pending = 1;
+    g_pc_req_ms = now_ms;
+    g_pc_last_status = 0;
+}
+
+unsigned host_pc_request_poll(unsigned long long now_ms)
+{
+    if (!g_pc_req_pending) {
+        return 0u;
+    }
+    if (now_ms > g_pc_req_ms && (now_ms - g_pc_req_ms) > 1500ull) {
+        g_pc_req_pending = 0;
+        g_pc_last_status = -1;
+        return 0u;
+    }
+    g_pc_req_pending = 0;
+    return (unsigned)(g_pc_req_mode + 1);
+}
+
+void host_pc_request_set_result(int status)
+{
+    g_pc_last_status = status;
+}
+
+int host_pc_last_status(void)
+{
+    return g_pc_last_status;
 }

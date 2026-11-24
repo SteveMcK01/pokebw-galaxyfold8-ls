@@ -19,6 +19,7 @@ enum {
     POKEBW_SET_HM_FREEDOM        = 12,
     POKEBW_SET_HM_NO_BADGES      = 13,
     POKEBW_SET_CATCH_EM_ALL      = 14,
+    POKEBW_SET_PORTABLE_PC       = 15,
 
     /* Display & Foldable */
     POKEBW_SET_FOLD_PIP_MODE     = 20,
@@ -59,7 +60,7 @@ static inline int bw_pokebw_setting(int id)
 #else
 static inline int bw_pokebw_setting(int id)
 {
-    return id == POKEBW_SET_TRADE_EVO_FIX ? 1 : 0;
+    return (id == POKEBW_SET_TRADE_EVO_FIX || id == POKEBW_SET_PORTABLE_PC) ? 1 : 0;
 }
 #endif
 

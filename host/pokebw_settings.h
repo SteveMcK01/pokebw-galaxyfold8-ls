@@ -26,6 +26,7 @@ typedef struct {
     int hm_freedom;
     int hm_no_badges;
     int catch_em_all;
+    int portable_pc;
 
     /* QoL */
     int universal_tm;
@@ -48,6 +49,12 @@ void host_eidos_opt_from_wasm(int id, int value);
 int  host_eidos_opt_get(int id);
 void host_eidos_opt_set(int id, int value);
 unsigned host_eidos_opt_poll_pending(void);
+
+/* One-shot Portable PC Box request (host -> wasm). */
+void host_pc_request_open(int mode, unsigned long long now_ms);
+unsigned host_pc_request_poll(unsigned long long now_ms);
+void host_pc_request_set_result(int status);
+int  host_pc_last_status(void);
 
 #ifdef __cplusplus
 }

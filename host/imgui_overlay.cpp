@@ -292,6 +292,24 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     setting_checkbox("Gotta Catch 'Em All! Mode",
                                      "Unlocks version exclusives, National Dex spawns, and events.",
                                      &cfg->catch_em_all);
+                    ImGui::Separator();
+                    setting_checkbox("Portable PC Box Access",
+                                     "Open Unova PC Boxes anywhere on the overworld (blocked during battles, cutscenes, or restricted areas).",
+                                     &cfg->portable_pc);
+                    if (cfg->portable_pc != 0) {
+                        if (ImGui::Button("Open PC Box (Organize)")) {
+                            host_pc_request_open(2, static_cast<unsigned long long>(SDL_GetTicks()));
+                            g_open = 0;
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Move Items")) {
+                            host_pc_request_open(3, static_cast<unsigned long long>(SDL_GetTicks()));
+                            g_open = 0;
+                        }
+                        if (host_pc_last_status() < 0) {
+                            ImGui::TextDisabled("Last PC request was blocked (only available while free-roaming on the overworld).");
+                        }
+                    }
                     ImGui::EndTabItem();
                 }
 
@@ -323,6 +341,13 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
         ImGui::EndChild();
 
         ImGui::Separator();
+        if (cfg->portable_pc != 0) {
+            if (ImGui::Button("PC Box")) {
+                host_pc_request_open(2, static_cast<unsigned long long>(SDL_GetTicks()));
+                g_open = 0;
+            }
+            ImGui::SameLine();
+        }
         if (ImGui::Button("Reset All")) {
             host_settings_reset_defaults();
         }

@@ -3385,6 +3385,16 @@ if(NOT _eidos_ovls STREQUAL "")
             "-Wl,--wrap=ov010_FIELD_ENCOUNT_ST_LoadEncountData")
     endif()
 
+    # PokeBW Fold Phase 1.6: Portable PC Box Access (ov021 RunGrid/RunRail wrap -> ov170)
+    if(NOT MSVC AND NOT APPLE AND EIDOS_BOOT AND
+       (_eidos_ovls STREQUAL "ALL" OR (";${_eidos_ovls};" MATCHES ";21;" AND ";${_eidos_ovls};" MATCHES ";170;")))
+        target_sources(eidos_boot PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_portable_pc.c)
+        target_link_options(eidos_boot PRIVATE
+            "-Wl,--wrap=ov021_FIELD_EVENT_CHECK_RunGrid"
+            "-Wl,--wrap=ov021_FIELD_EVENT_CHECK_RunRail")
+    endif()
+
     # test_ovlink_title: every overlay of the set loaded from the extract in
     # turn, its tables checked against the player's files.  Without the
     # boot only: with it the overlays' ARM9 callees are the boot's, and

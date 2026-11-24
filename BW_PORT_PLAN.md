@@ -20,7 +20,7 @@
 3. **HM Without Teaching / HM Freedom (Done):** Use Cut, Fly, Surf, Strength, Waterfall, Dive, and Flash from any compatible party member without occupying a moveslot (plus optional badge bypass).
 4. **Gotta Catch 'Em All! Mode (Done):** Merge Black/White exclusives, inject Gens 1-4 National Dex species into Unova routes/phenomena, and enable built-in Victini, Zorua, Zoroark, Keldeo, Meloetta, Genesect, and opposite-legendary encounters.
 5. **Native `eidos` One-Screen Mode + Unified ImGui Settings Bridge (Done):** Uses `eidos`'s built-in aspect-adaptive widescreen 3D (`--layout one`), 15 one-screen UI recipes, and on-demand `C-GEAR` sheet instead of a competing PiP; exposes `eidos` layout, graphics, audio, and QoL options live inside our ImGui overlay.
-6. **Portable PC Box Access / PC Anywhere (Next — Medium):** Launch Unova `BoxApp` or Gear quick-swap anywhere with cutscene/Elite Four/bridge lock guardrails (renders natively in `eidos`'s one-screen PC recipe).
+6. **Portable PC Box Access / PC Anywhere (Done):** Launch Unova `BoxApp` (`ov170`, Organize Boxes or Move Items) from the ImGui overlay anywhere while free-roaming on the overworld with cutscene/battle/comm/wipe guardrails (renders natively in `eidos`'s one-screen PC recipe).
 
 ### Phase 2: Fast-Follow QoL, Battle HUD & Gear Radar (Low -> Medium)
 1. **QoL & Cheats (Low):** Instant Text and Fast/Seamless Map Transitions are already provided by `eidos` and wired into our ImGui menu; remaining items are Universal TM/HM compatibility, Hard Level Cap, No Random Encounters, Always Bite When Fishing, and Season & Clock switcher.

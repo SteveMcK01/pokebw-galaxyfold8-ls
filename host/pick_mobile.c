@@ -20,6 +20,7 @@
 
 #include "host.h"
 #include "picker.h"
+#include "pokebw_settings.h"
 
 static void put(char *out, size_t n, const char *s)
 {
@@ -29,11 +30,102 @@ static void put(char *out, size_t n, const char *s)
 }
 
 #if defined(__ANDROID__)
+#include <jni.h>
 #include <unistd.h>
 
 static SDL_Semaphore *g_done;
 static char g_uri[2048];
 static int g_rc;
+
+static SDL_Mutex *g_savedir_mu;
+static int g_savedir_ready;
+static char g_savedir_result[1024];
+
+JNIEXPORT void JNICALL
+Java_org_projectholon_eidos_EidosActivity_nativeOnSaveFolderPicked(
+    JNIEnv *env, jobject thiz, jstring jpath)
+{
+    const char *utf = NULL;
+
+    (void)thiz;
+    if (g_savedir_mu == NULL) {
+        g_savedir_mu = SDL_CreateMutex();
+    }
+    if (g_savedir_mu != NULL) {
+        SDL_LockMutex(g_savedir_mu);
+    }
+    if (jpath != NULL) {
+        utf = (*env)->GetStringUTFChars(env, jpath, NULL);
+    }
+    snprintf(g_savedir_result, sizeof(g_savedir_result), "%s", utf != NULL ? utf : "");
+    if (utf != NULL) {
+        (*env)->ReleaseStringUTFChars(env, jpath, utf);
+    }
+    g_savedir_ready = 1;
+    if (g_savedir_mu != NULL) {
+        SDL_UnlockMutex(g_savedir_mu);
+    }
+}
+
+void host_pick_save_dir_begin(void)
+{
+    JNIEnv *env = (JNIEnv *)SDL_GetAndroidJNIEnv();
+    jobject act = (jobject)SDL_GetAndroidActivity();
+    jclass cls;
+    jmethodID mid;
+
+    if (g_savedir_mu == NULL) {
+        g_savedir_mu = SDL_CreateMutex();
+    }
+    if (env == NULL || act == NULL) {
+        host_save_dir_set_status("Folder picker unavailable.");
+        if (act != NULL && env != NULL) {
+            (*env)->DeleteLocalRef(env, act);
+        }
+        return;
+    }
+    cls = (*env)->GetObjectClass(env, act);
+    mid = cls != NULL ? (*env)->GetMethodID(env, cls, "pickSaveFolder", "()V") : NULL;
+    if (mid != NULL) {
+        (*env)->CallVoidMethod(env, act, mid);
+    } else {
+        host_save_dir_set_status("Folder picker method not found.");
+    }
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        host_save_dir_set_status("Could not open Android folder picker.");
+    }
+    if (cls != NULL) {
+        (*env)->DeleteLocalRef(env, cls);
+    }
+    (*env)->DeleteLocalRef(env, act);
+}
+
+void host_pick_save_dir_pump(void)
+{
+    char buf[1024];
+    int ready = 0;
+
+    if (g_savedir_mu == NULL) {
+        return;
+    }
+    SDL_LockMutex(g_savedir_mu);
+    if (g_savedir_ready) {
+        snprintf(buf, sizeof(buf), "%s", g_savedir_result);
+        g_savedir_ready = 0;
+        ready = 1;
+    }
+    SDL_UnlockMutex(g_savedir_mu);
+
+    if (!ready) {
+        return;
+    }
+    if (strncmp(buf, "ERR:", 4) == 0) {
+        host_save_dir_set_status(buf + 4);
+    } else if (buf[0] != '\0') {
+        host_settings_set_save_dir(buf);
+    }
+}
 
 static void SDLCALL picked(void *user, const char *const *files, int filter)
 {
@@ -109,6 +201,14 @@ int host_pick_rom(const char *title, char *out, size_t n)
 {
     put(out, n, "");
     return host_pick_rom_ios(title, out, n);
+}
+
+void host_pick_save_dir_begin(void)
+{
+}
+
+void host_pick_save_dir_pump(void)
+{
 }
 
 #endif

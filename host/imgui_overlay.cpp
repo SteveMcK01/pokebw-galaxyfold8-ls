@@ -329,10 +329,29 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     ImGui::Separator();
                     ImGui::TextDisabled("Phase 2 QoL toggles:");
                     ImGui::Spacing();
-                    setting_checkbox("Universal TM/HM Compatibility", nullptr, &cfg->universal_tm);
                     setting_checkbox("Hard Level Cap", nullptr, &cfg->hard_level_cap);
                     setting_checkbox("No Random Encounters", nullptr, &cfg->no_random_encounters);
                     setting_checkbox("Always Bite When Fishing", nullptr, &cfg->always_bite_fishing);
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Save Data (Standard 512 KiB DS .sav):");
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("Save Folder: %s", host_settings_effective_save_dir());
+                    if (ImGui::Button("Choose Save Folder...")) {
+                        host_pick_save_dir_begin();
+                    }
+                    ImGui::SameLine();
+                    if (cfg->save_dir[0] == '\0') {
+                        ImGui::BeginDisabled();
+                    }
+                    if (ImGui::Button("Reset to Default")) {
+                        host_settings_set_save_dir("");
+                    }
+                    if (cfg->save_dir[0] == '\0') {
+                        ImGui::EndDisabled();
+                    }
+                    if (host_save_dir_status()[0] != '\0') {
+                        ImGui::TextWrapped("%s", host_save_dir_status());
+                    }
                     ImGui::EndTabItem();
                 }
                 ImGui::EndTabBar();
@@ -403,6 +422,8 @@ int host_imgui_process_event(const SDL_Event *ev)
 
 void host_imgui_render(SDL_Window *window)
 {
+    host_pick_save_dir_pump();
+
     Uint64 now = SDL_GetTicksNS();
     if (g_last_ns != 0 && now > g_last_ns) {
         float dt = static_cast<float>(now - g_last_ns) * 1e-9f;

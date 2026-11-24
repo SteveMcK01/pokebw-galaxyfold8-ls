@@ -19,6 +19,9 @@ static int g_pc_req_pending = 0;
 static int g_pc_req_mode = 2;
 static unsigned long long g_pc_req_ms = 0;
 static int g_pc_last_status = 0;
+static char g_default_save_dir[1024] = "";
+static int g_save_dir_dirty = 0;
+static char g_save_dir_status[160] = "";
 
 static void apply_control_defaults(PokebwSettings *s)
 {
@@ -84,18 +87,21 @@ static void parse_ini_line(const char *section, const char *key, const char *val
         else if (strcmp(key, "catch_em_all") == 0) g_settings.catch_em_all = parse_bool(val);
         else if (strcmp(key, "portable_pc") == 0) g_settings.portable_pc = parse_bool(val);
     } else if (strcmp(section, "QoL") == 0) {
-        if (strcmp(key, "universal_tm") == 0) g_settings.universal_tm = parse_bool(val);
-        else if (strcmp(key, "hard_level_cap") == 0) g_settings.hard_level_cap = parse_bool(val);
+        if (strcmp(key, "hard_level_cap") == 0) g_settings.hard_level_cap = parse_bool(val);
         else if (strcmp(key, "no_random_encounters") == 0) g_settings.no_random_encounters = parse_bool(val);
         else if (strcmp(key, "always_bite_fishing") == 0) g_settings.always_bite_fishing = parse_bool(val);
         else if (strcmp(key, "instant_text") == 0) g_settings.instant_text = parse_bool(val);
+    } else if (strcmp(section, "Save") == 0) {
+        if (strcmp(key, "save_dir") == 0) {
+            snprintf(g_settings.save_dir, sizeof(g_settings.save_dir), "%s", val);
+        }
     }
 }
 
 static void load_ini(const char *path)
 {
     FILE *f = fopen(path, "r");
-    char line[512];
+    char line[1200];
     char section[64] = "";
 
     if (f == NULL) {
@@ -147,11 +153,14 @@ void host_settings_init(const char *profile_dir)
         size_t len = strlen(profile_dir);
         if (profile_dir[len - 1] == '/' || profile_dir[len - 1] == '\\') {
             snprintf(g_settings_path, sizeof(g_settings_path), "%spokebw_settings.ini", profile_dir);
+            snprintf(g_default_save_dir, sizeof(g_default_save_dir), "%ssaves", profile_dir);
         } else {
             snprintf(g_settings_path, sizeof(g_settings_path), "%s/pokebw_settings.ini", profile_dir);
+            snprintf(g_default_save_dir, sizeof(g_default_save_dir), "%s/saves", profile_dir);
         }
     } else {
         snprintf(g_settings_path, sizeof(g_settings_path), "pokebw_settings.ini");
+        snprintf(g_default_save_dir, sizeof(g_default_save_dir), "saves");
     }
     g_initialized = 1;
     load_ini(g_settings_path);
@@ -185,7 +194,6 @@ int host_settings_get_by_id(int id)
     case POKEBW_SET_CATCH_EM_ALL:         return s->catch_em_all;
     case POKEBW_SET_PORTABLE_PC:          return s->portable_pc;
     case POKEBW_SET_FOLD_PIP_MODE:        return s->fold_pip_mode;
-    case POKEBW_SET_UNIVERSAL_TM:         return s->universal_tm;
     case POKEBW_SET_HARD_LEVEL_CAP:       return s->hard_level_cap;
     case POKEBW_SET_NO_RANDOM_ENCOUNTERS: return s->no_random_encounters;
     case POKEBW_SET_ALWAYS_BITE_FISHING:  return s->always_bite_fishing;
@@ -202,7 +210,15 @@ void host_settings_reset_controls(void)
 
 void host_settings_reset_defaults(void)
 {
-    apply_all_defaults(host_settings_get());
+    PokebwSettings *s = host_settings_get();
+    int had_custom_dir = (s->save_dir[0] != '\0');
+
+    apply_all_defaults(s);
+    if (had_custom_dir) {
+        g_save_dir_dirty = 1;
+        snprintf(g_save_dir_status, sizeof(g_save_dir_status),
+                 "Save folder reset to default. Restart app if switching existing saves.");
+    }
     host_eidos_opt_set(POKEBW_EIDOS_OPT_INSTANT_TEXT, 0);
     (void)host_settings_save();
 }
@@ -230,11 +246,12 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             "catch_em_all = %d\n"
             "portable_pc = %d\n\n"
             "[QoL]\n"
-            "universal_tm = %d\n"
             "hard_level_cap = %d\n"
             "no_random_encounters = %d\n"
             "always_bite_fishing = %d\n"
-            "instant_text = %d\n",
+            "instant_text = %d\n\n"
+            "[Save]\n"
+            "save_dir = %s\n",
             s->touch_visible ? 1 : 0,
             clamp_int(s->touch_opacity, 15, 100),
             clamp_int(s->touch_scale, 70, 140),
@@ -246,11 +263,11 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             s->hm_no_badges ? 1 : 0,
             s->catch_em_all ? 1 : 0,
             s->portable_pc ? 1 : 0,
-            s->universal_tm ? 1 : 0,
             s->hard_level_cap ? 1 : 0,
             s->no_random_encounters ? 1 : 0,
             s->always_bite_fishing ? 1 : 0,
-            s->instant_text ? 1 : 0);
+            s->instant_text ? 1 : 0,
+            s->save_dir);
     if (ferror(f) || fclose(f) != 0) {
         return -1;
     }
@@ -367,4 +384,142 @@ void host_pc_request_set_result(int status)
 int host_pc_last_status(void)
 {
     return g_pc_last_status;
+}
+
+const char *host_settings_effective_save_dir(void)
+{
+    const PokebwSettings *s = host_settings_get();
+
+    if (s->save_dir[0] != '\0') {
+        return s->save_dir;
+    }
+    return g_default_save_dir[0] != '\0' ? g_default_save_dir : "saves";
+}
+
+static int file_exists(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (f != NULL) {
+        fclose(f);
+        return 1;
+    }
+    return 0;
+}
+
+static int copy_file_atomic(const char *src_path, const char *dst_path)
+{
+    FILE *in;
+    FILE *out;
+    char tmp_path[1208];
+    unsigned char buf[16384];
+    size_t nread;
+    int ok = 1;
+
+    in = fopen(src_path, "rb");
+    if (in == NULL) {
+        return -1;
+    }
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", dst_path);
+    out = fopen(tmp_path, "wb");
+    if (out == NULL) {
+        fclose(in);
+        return -1;
+    }
+    while ((nread = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, nread, out) != nread) {
+            ok = 0;
+            break;
+        }
+    }
+    if (ferror(in) || ferror(out)) {
+        ok = 0;
+    }
+    if (fclose(out) != 0) {
+        ok = 0;
+    }
+    fclose(in);
+    if (!ok || rename(tmp_path, dst_path) != 0) {
+        (void)remove(tmp_path);
+        return -1;
+    }
+    return 0;
+}
+
+void host_settings_set_save_dir(const char *new_dir)
+{
+    PokebwSettings *s = host_settings_get();
+    char clean_dir[1024];
+    char old_eff[1024];
+    char new_eff[1024];
+    size_t len;
+
+    snprintf(old_eff, sizeof(old_eff), "%s", host_settings_effective_save_dir());
+    if (new_dir == NULL) {
+        clean_dir[0] = '\0';
+    } else {
+        snprintf(clean_dir, sizeof(clean_dir), "%s", new_dir);
+        len = strlen(clean_dir);
+        while (len > 1 && (clean_dir[len - 1] == '/' || clean_dir[len - 1] == '\\')) {
+            clean_dir[--len] = '\0';
+        }
+    }
+
+    snprintf(s->save_dir, sizeof(s->save_dir), "%s", clean_dir);
+    (void)host_settings_save();
+    snprintf(new_eff, sizeof(new_eff), "%s", host_settings_effective_save_dir());
+
+    if (strcmp(old_eff, new_eff) != 0) {
+        char old_sav[1200];
+        char new_sav[1200];
+
+        snprintf(old_sav, sizeof(old_sav), "%s/pokeblack.sav", old_eff);
+        snprintf(new_sav, sizeof(new_sav), "%s/pokeblack.sav", new_eff);
+        if (file_exists(new_sav)) {
+            snprintf(g_save_dir_status, sizeof(g_save_dir_status),
+                     "Save folder updated. Restart app to load the existing .sav here.");
+        } else if (file_exists(old_sav)) {
+            if (copy_file_atomic(old_sav, new_sav) == 0) {
+                snprintf(g_save_dir_status, sizeof(g_save_dir_status),
+                         "Save folder updated (copied pokeblack.sav).");
+            } else {
+                snprintf(g_save_dir_status, sizeof(g_save_dir_status),
+                         "Save folder updated (could not copy existing pokeblack.sav).");
+            }
+        } else {
+            snprintf(g_save_dir_status, sizeof(g_save_dir_status),
+                     "Save folder updated.");
+        }
+        g_save_dir_dirty = 1;
+    } else {
+        snprintf(g_save_dir_status, sizeof(g_save_dir_status),
+                 "Save folder unchanged.");
+    }
+}
+
+int host_save_dir_poll_pending(char *out, unsigned n)
+{
+    const char *eff;
+    size_t len;
+
+    if (!g_save_dir_dirty || out == NULL || n == 0u) {
+        return 0;
+    }
+    eff = host_settings_effective_save_dir();
+    len = strlen(eff);
+    if (len >= n) {
+        return 0;
+    }
+    g_save_dir_dirty = 0;
+    memcpy(out, eff, len + 1);
+    return 1;
+}
+
+const char *host_save_dir_status(void)
+{
+    return g_save_dir_status;
+}
+
+void host_save_dir_set_status(const char *msg)
+{
+    snprintf(g_save_dir_status, sizeof(g_save_dir_status), "%s", msg != NULL ? msg : "");
 }

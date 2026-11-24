@@ -34,6 +34,8 @@
 #if defined(__wasm__)
 #include "wasm_host.h"
 #include "pokebw_settings_ids.h"
+#include "save.h"
+#include "arm7/arm7.h"
 
 _Static_assert(EIDOS_OPT_COUNT == POKEBW_EIDOS_OPT_COUNT, "option count mismatch");
 _Static_assert(EIDOS_OPT_LAYOUT_ARRANGEMENT == POKEBW_EIDOS_OPT_LAYOUT, "layout id mismatch");
@@ -2746,6 +2748,14 @@ void eidos_settings_idle(EidosPlatform *p, u32 now_ms)
         }
         if (host_changed) {
             (void)eidos_settings_commit();
+        }
+        {
+            char new_dir[1024];
+
+            if (bw_host_save_dir_poll(new_dir, (unsigned)sizeof new_dir)) {
+                bw_set_save_dir(new_dir);
+                bw_arm7_backup_set_path(NULL);
+            }
         }
     }
 #endif

@@ -280,6 +280,23 @@ u32 w2c_eidos_os_path(struct w2c_eidos *e, u32 kind, u32 out, u32 n)
     return 0;
 }
 
+u32 w2c_eidos_save_dir_poll(struct w2c_eidos *e, u32 out, u32 n)
+{
+    char buf[1024];
+    size_t len;
+
+    (void)e;
+    if (!host_save_dir_poll_pending(buf, (unsigned)sizeof buf)) {
+        return 0;
+    }
+    len = strlen(buf);
+    if (n == 0 || len >= n) {
+        return 0;
+    }
+    memcpy(host_ptr(out, n), buf, len + 1);
+    return 1;
+}
+
 /* A trap: the native frames, as the executable's own addresses, for
  * addr2line (the translated functions carry the module's names). */
 void host_trap(wasm_rt_trap_t code)
@@ -430,6 +447,10 @@ static char **mobile_args(int *argc)
     argv[n++] = data;
     argv[n++] = "--profile-dir";
     argv[n++] = prof;
+    if (host_settings_get()->save_dir[0] != '\0') {
+        argv[n++] = "--save-dir";
+        argv[n++] = SDL_strdup(host_settings_get()->save_dir);
+    }
     argv[n++] = "--layout";
     argv[n++] = "one";
     argv[n++] = "--window";

@@ -1,17 +1,26 @@
 package org.projectholon.eidos;
 
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Insets;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
+import android.provider.DocumentsContract;
+import android.provider.Settings;
 import android.view.View;
 import android.view.WindowInsets;
 
 import org.libsdl.app.SDLActivity;
 import org.libsdl.app.SDLSurface;
 
+import java.io.File;
+
 /*
  * eidos on Android: SDL's activity, with one change to what the game is
- * told about the screen's edges (SDL_GetWindowSafeArea).
+ * told about the screen's edges (SDL_GetWindowSafeArea), plus a folder
+ * picker for external .sav storage.
  *
  * SDL counts the system's gesture areas (the swipe down from the top, the
  * home gesture at the bottom, the back gestures at the sides) as unsafe.
@@ -21,6 +30,11 @@ import org.libsdl.app.SDLSurface;
  * display's cutouts (a camera hole) and the system bars while they show.
  */
 public class EidosActivity extends SDLActivity {
+
+    private static final int REQ_MANAGE_STORAGE = 9101;
+    private static final int REQ_PICK_SAVE_DIR = 9102;
+
+    private native void nativeOnSaveFolderPicked(String path);
 
     static class EidosSurface extends SDLSurface {
         EidosSurface(Context context) {
@@ -44,5 +58,109 @@ public class EidosActivity extends SDLActivity {
     @Override
     protected SDLSurface createSDLSurface(Context context) {
         return new EidosSurface(context);
+    }
+
+    public void pickSaveFolder() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (Build.VERSION.SDK_INT >= 30 && !Environment.isExternalStorageManager()) {
+                    try {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                        intent.setData(Uri.parse("package:" + getPackageName()));
+                        startActivityForResult(intent, REQ_MANAGE_STORAGE);
+                        return;
+                    } catch (ActivityNotFoundException e) {
+                        try {
+                            Intent fallback = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                            startActivityForResult(fallback, REQ_MANAGE_STORAGE);
+                            return;
+                        } catch (Exception ignored) {
+                            nativeOnSaveFolderPicked("ERR:Could not open All Files Access settings");
+                            return;
+                        }
+                    }
+                }
+                launchFolderPicker();
+            }
+        });
+    }
+
+    private void launchFolderPicker() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(intent, REQ_PICK_SAVE_DIR);
+        } catch (Exception e) {
+            nativeOnSaveFolderPicked("ERR:No folder picker available on this device");
+        }
+    }
+
+    private String resolveTreeUri(Uri treeUri) {
+        if (treeUri == null) {
+            return null;
+        }
+        String docId = DocumentsContract.getTreeDocumentId(treeUri);
+        if (docId == null || docId.isEmpty()) {
+            return null;
+        }
+        String[] parts = docId.split(":", 2);
+        String vol = parts[0];
+        String rel = parts.length > 1 ? parts[1] : "";
+        if ("primary".equalsIgnoreCase(vol)) {
+            String base = Environment.getExternalStorageDirectory().getAbsolutePath();
+            return rel.isEmpty() ? base : (base + "/" + rel);
+        }
+        if ("home".equalsIgnoreCase(vol)) {
+            String docs = Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOCUMENTS).getAbsolutePath();
+            return rel.isEmpty() ? docs : (docs + "/" + rel);
+        }
+        if (vol.indexOf('/') >= 0 || "downloads".equalsIgnoreCase(vol) ||
+            "raw".equalsIgnoreCase(vol)) {
+            if ("raw".equalsIgnoreCase(vol) && rel.startsWith("/")) {
+                return rel;
+            }
+            return null;
+        }
+        return rel.isEmpty() ? ("/storage/" + vol) : ("/storage/" + vol + "/" + rel);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQ_MANAGE_STORAGE) {
+            if (Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager()) {
+                launchFolderPicker();
+            } else {
+                nativeOnSaveFolderPicked("ERR:All Files Access permission is required to save outside app storage");
+            }
+            return;
+        }
+        if (requestCode == REQ_PICK_SAVE_DIR) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                nativeOnSaveFolderPicked("");
+                return;
+            }
+            try {
+                Uri uri = data.getData();
+                String path = resolveTreeUri(uri);
+                if (path == null) {
+                    nativeOnSaveFolderPicked("ERR:Choose a local folder on device storage (e.g. Documents)");
+                    return;
+                }
+                File dir = new File(path);
+                if (dir.isDirectory() && dir.canWrite()) {
+                    nativeOnSaveFolderPicked(dir.getAbsolutePath());
+                } else {
+                    nativeOnSaveFolderPicked("ERR:Folder is not writable (" + path + ")");
+                }
+            } catch (Exception e) {
+                nativeOnSaveFolderPicked("ERR:Could not access selected folder");
+            }
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 }

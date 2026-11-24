@@ -29,11 +29,13 @@ typedef struct {
     int portable_pc;
 
     /* QoL */
-    int universal_tm;
     int hard_level_cap;
     int no_random_encounters;
     int always_bite_fishing;
     int instant_text;
+
+    /* Save */
+    char save_dir[1024];
 } PokebwSettings;
 
 void host_settings_init(const char *profile_dir);
@@ -55,6 +57,15 @@ void host_pc_request_open(int mode, unsigned long long now_ms);
 unsigned host_pc_request_poll(unsigned long long now_ms);
 void host_pc_request_set_result(int status);
 int  host_pc_last_status(void);
+
+/* Custom external save folder support (PKForge / emulator .sav interop). */
+const char *host_settings_effective_save_dir(void);
+void host_settings_set_save_dir(const char *new_dir);
+int  host_save_dir_poll_pending(char *out, unsigned n);
+const char *host_save_dir_status(void);
+void host_save_dir_set_status(const char *msg);
+void host_pick_save_dir_begin(void);
+void host_pick_save_dir_pump(void);
 
 #ifdef __cplusplus
 }

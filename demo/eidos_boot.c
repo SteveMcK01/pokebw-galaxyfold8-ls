@@ -3285,6 +3285,16 @@ static int boot_launcher_arg(int argc, char **argv, int *i, int apply)
         }
         return 1;
     }
+    if (strcmp(a, "--save-dir") == 0 && *i + 1 < argc) {
+        const char *dir = argv[++*i];
+
+        if (apply && dir[0] != '\0') {
+            (void)bw_plat_mkdirs(dir);
+            bw_set_save_dir(dir);
+            boot_setenv("BW_SAVE_DIR", dir);
+        }
+        return 1;
+    }
     if (strcmp(a, "--join") == 0 && *i + 1 < argc) {
         const char *code = argv[++*i];
 

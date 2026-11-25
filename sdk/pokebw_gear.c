@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "pokebw_daycare_preview.h"
 #include "pokebw_gear.h"
 #include "pokebw_gear_state.h"
 #include "pokebw_hm_shortcut.h"
@@ -100,6 +101,7 @@ static uint32_t g_last_zone = 0xFFFFFFFFu;
 static uint32_t g_frame_counter = 0u;
 static uint32_t g_last_hm_usable = 0xFFFFFFFFu;
 static uint32_t g_last_hm_slots = 0xFFFFFFFFu;
+static uint32_t g_last_egg_sig = 0xFFFFFFFFu;
 static PokebwGearSnapshot g_snap;
 
 void pokebw_gear_mark_dirty(void)
@@ -377,10 +379,16 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
     PokebwGearFieldMove cur_hm[POKEBW_GEAR_FIELD_MOVES];
     uint32_t hm_usable_mask = 0u;
     uint32_t hm_slots_sig = 0u;
+    uint32_t egg_sig = 0u;
 
     if (gameSystem == NULL || fieldMap == NULL || GAMESYSTEM_GetGameData == NULL) {
         return;
     }
+    gd = GAMESYSTEM_GetGameData(gameSystem);
+    if (gd == NULL) {
+        return;
+    }
+    party = (GAME_DATA_GetMyParty != NULL) ? GAME_DATA_GetMyParty(gd) : NULL;
     if (ov021_FIELDMAP_GetZoneId != NULL) {
         zone_id = (uint32_t)ov021_FIELDMAP_GetZoneId(fieldMap);
     }
@@ -396,23 +404,21 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
             hm_slots_sig = (hm_slots_sig * 17u) ^ ((uint32_t)cur_hm[k].party_slot + ((uint32_t)cur_hm[k].blocked_code << 4));
         }
     }
+    egg_sig = pokebw_daycare_egg_step_signature(gd, party);
 
     g_frame_counter++;
     if (!g_force_refresh && !g_enc_dirty && zone_id == g_last_zone &&
         hm_usable_mask == g_last_hm_usable &&
         hm_slots_sig == g_last_hm_slots &&
+        egg_sig == g_last_egg_sig &&
         (g_frame_counter % 30u) != 1u) {
-        return;
-    }
-
-    gd = GAMESYSTEM_GetGameData(gameSystem);
-    if (gd == NULL) {
         return;
     }
 
     g_last_zone = zone_id;
     g_last_hm_usable = hm_usable_mask;
     g_last_hm_slots = hm_slots_sig;
+    g_last_egg_sig = egg_sig;
     g_enc_dirty = 0;
     g_force_refresh = 0;
 
@@ -445,7 +451,6 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
     }
 
     /* Collect Party & Moves */
-    party = (GAME_DATA_GetMyParty != NULL) ? GAME_DATA_GetMyParty(gd) : NULL;
     if (party != NULL && POKEPARTY_GetCount != NULL &&
         POKEPARTY_GetMember != NULL && POKE_TOOL_GetPartyValue != NULL) {
         n = POKEPARTY_GetCount(party);
@@ -510,6 +515,9 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
             }
         }
     }
+
+    pokebw_daycare_fill_party_eggs(gd, party, &g_snap);
+    pokebw_daycare_fill_preview(gd, fieldMap, &g_snap.daycare);
 
     /* Aggregate Route Encounters if this map has a loaded encounter table */
     zukan = (ZUKAN_SAVE_GetFromGameData != NULL) ? ZUKAN_SAVE_GetFromGameData(gd) : NULL;

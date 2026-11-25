@@ -250,6 +250,28 @@ void format_status_badge(uint8_t status, const char **out_label, ImVec4 *out_col
     }
 }
 
+static const char *const k_nature_names[25] = {
+    "Hardy", "Lonely", "Brave", "Adamant", "Naughty",
+    "Bold", "Docile", "Relaxed", "Impish", "Lax",
+    "Timid", "Hasty", "Serious", "Jolly", "Naive",
+    "Modest", "Mild", "Quiet", "Bashful", "Rash",
+    "Calm", "Gentle", "Sassy", "Careful", "Quirky"
+};
+
+static const char *daycare_lang_tag(uint8_t lang)
+{
+    switch (lang) {
+    case 1: return "JP";
+    case 2: return "EN";
+    case 3: return "FR";
+    case 4: return "IT";
+    case 5: return "DE";
+    case 7: return "ES";
+    case 8: return "KO";
+    default: return "??";
+    }
+}
+
 void draw_gear_tab(void)
 {
     static int g_confirm_restore_slot = 0;
@@ -356,6 +378,27 @@ void draw_gear_tab(void)
 
                 if (mon.is_egg) {
                     ImGui::Text("Egg");
+                    if (mon.egg_hatch_boost != 0u) {
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(0.40f, 0.88f, 0.48f, 1.0f),
+                                           "[2x Flame Body/Magma Armor]");
+                    }
+                    if (mon.egg_steps_left == 0u) {
+                        ImGui::TextColored(ImVec4(0.32f, 0.94f, 0.44f, 1.0f),
+                                           "Ready to hatch on next step!");
+                    } else {
+                        float efrac = (mon.egg_steps_max > 0u)
+                                          ? std::clamp(1.0f - static_cast<float>(mon.egg_steps_left) /
+                                                                  static_cast<float>(mon.egg_steps_max),
+                                                       0.0f, 1.0f)
+                                          : 0.0f;
+                        char egg_buf[48];
+                        std::snprintf(egg_buf, sizeof(egg_buf), "%u steps left (%u cycles)",
+                                      (unsigned)mon.egg_steps_left, (unsigned)mon.egg_cycles_left);
+                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.92f, 0.72f, 0.24f, 1.0f));
+                        ImGui::ProgressBar(efrac, ImVec2(-1.0f, 0.0f), egg_buf);
+                        ImGui::PopStyleColor();
+                    }
                 } else {
                     if (std::strcmp(mon.name, mon.species_name) != 0) {
                         ImGui::Text("%s (%s)  Lv.%u", mon.name, mon.species_name, (unsigned)mon.level);
@@ -415,6 +458,142 @@ void draw_gear_tab(void)
                     ImGui::Separator();
                 }
                 ImGui::PopID();
+            }
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Day Care Preview (Route 3)")) {
+        const PokebwGearDaycare &dc = gear->daycare;
+        if (gear->valid == 0u || dc.valid == 0u) {
+            ImGui::TextDisabled("Enter the overworld to read Route 3 Day Care status.");
+        } else {
+            if (dc.egg_ready != 0u) {
+                ImGui::TextColored(ImVec4(0.32f, 0.96f, 0.48f, 1.0f),
+                                   "EGG READY! Talk to the Day Care Man on Route 3.");
+                ImGui::Spacing();
+            }
+
+            if (dc.parent_count == 0u) {
+                ImGui::TextDisabled("No Pokemon currently deposited in Day Care.");
+            } else {
+                static const char *const k_iv_names[6] = {
+                    "HP", "Atk", "Def", "SpA", "SpD", "Spe"
+                };
+                for (int s = 0; s < 2; s++) {
+                    const PokebwGearDaycareParent &p = dc.parents[s];
+                    if (!p.present) {
+                        continue;
+                    }
+                    const char *nat = (p.nature < 25u) ? k_nature_names[p.nature] : "Hardy";
+                    const char *gstr = (p.gender == 0u) ? "M" : (p.gender == 1u ? "F" : "-");
+                    ImGui::Text("Slot %d: %s [%s] Lv.%u", s + 1, p.name, gstr, (unsigned)p.level);
+                    if (p.levels_gained > 0u) {
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(0.45f, 0.88f, 0.52f, 1.0f), "(+%u)",
+                                           (unsigned)p.levels_gained);
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("| %s | %s", nat, daycare_lang_tag(p.language));
+                    if (p.held_item != 0u && p.item_name[0] != '\0') {
+                        ImGui::Text("  Holding: %s", p.item_name);
+                    }
+                    char iv_buf[96];
+                    int off = 0;
+                    for (int k = 0; k < 6; k++) {
+                        int n = std::snprintf(iv_buf + off, sizeof(iv_buf) - static_cast<size_t>(off),
+                                              "%s%s %u%s", k > 0 ? " | " : "",
+                                              k_iv_names[k], (unsigned)p.ivs[k],
+                                              (dc.power_stat[s] == k) ? "*" : "");
+                        if (n > 0) off += n;
+                    }
+                    ImGui::TextDisabled("  IVs: %s", iv_buf);
+                }
+
+                if (dc.parent_count == 2u) {
+                    ImGui::Separator();
+                    if (dc.compat_score == 0u) {
+                        ImGui::TextColored(ImVec4(0.95f, 0.34f, 0.32f, 1.0f),
+                                           "Compatibility: Incompatible (0%% - will not produce an Egg)");
+                    } else {
+                        ImVec4 ccol = (dc.compat_score >= 70u)
+                                          ? ImVec4(0.32f, 0.94f, 0.48f, 1.0f)
+                                          : (dc.compat_score >= 50u ? ImVec4(0.95f, 0.82f, 0.24f, 1.0f)
+                                                                    : ImVec4(0.96f, 0.56f, 0.22f, 1.0f));
+                        const char *clabel = (dc.compat_score >= 70u) ? "High (fast)"
+                                             : (dc.compat_score >= 50u ? "Medium" : "Low (slow)");
+                        ImGui::TextColored(ccol, "Compatibility: %s (%u/1600 per 16 steps)",
+                                           clabel, (unsigned)dc.compat_score);
+
+                        if (dc.egg_species != 0u) {
+                            unsigned base_steps = static_cast<unsigned>(dc.egg_cycles) * 257u;
+                            if (dc.egg_alt_flag == 1u) {
+                                ImGui::Text("Egg Species: Nidoran F / Nidoran M (50/50) (~%u steps)",
+                                            base_steps);
+                            } else if (dc.egg_alt_flag == 2u) {
+                                ImGui::Text("Egg Species: Volbeat / Illumise (50/50) (~%u steps)",
+                                            base_steps);
+                            } else {
+                                ImGui::Text("Egg Species: %s (~%u steps, %u cycles)",
+                                            dc.egg_species_name, base_steps, (unsigned)dc.egg_cycles);
+                            }
+                        }
+
+                        if (dc.egg_move_count > 0u) {
+                            char mv_line[128];
+                            int off = 0;
+                            for (int m = 0; m < (int)dc.egg_move_count && m < 4; m++) {
+                                int n = std::snprintf(mv_line + off,
+                                                      sizeof(mv_line) - static_cast<size_t>(off),
+                                                      "%s%s", m > 0 ? ", " : "", dc.egg_move_names[m]);
+                                if (n > 0) off += n;
+                            }
+                            ImGui::TextWrapped("Egg Moves: %s", mv_line);
+                        }
+
+                        if (dc.everstone_mask == 3u) {
+                            const char *n0 = k_nature_names[dc.everstone_nature[0] % 25u];
+                            const char *n1 = k_nature_names[dc.everstone_nature[1] % 25u];
+                            ImGui::TextWrapped("Nature: 25%% %s / 25%% %s / 50%% Random (Dual Everstone)", n0, n1);
+                        } else if (dc.everstone_mask == 1u || dc.everstone_mask == 2u) {
+                            int es = (dc.everstone_mask == 2u) ? 1 : 0;
+                            const char *enat = k_nature_names[dc.everstone_nature[es] % 25u];
+                            ImGui::Text("Nature: 50%% %s (Everstone on Slot %d)", enat, es + 1);
+                        } else {
+                            ImGui::TextDisabled("Nature: Random (1/25 each - equip Everstone for 50%%)");
+                        }
+
+                        if (dc.power_stat[0] >= 0 && dc.power_stat[1] >= 0) {
+                            int s0 = dc.power_stat[0], s1 = dc.power_stat[1];
+                            ImGui::TextWrapped("IVs: 50%% %s (%u) / 50%% %s (%u) + 2 Random from Parents",
+                                               k_iv_names[s0], (unsigned)dc.parents[0].ivs[s0],
+                                               k_iv_names[s1], (unsigned)dc.parents[1].ivs[s1]);
+                        } else if (dc.power_stat[0] >= 0 || dc.power_stat[1] >= 0) {
+                            int ps = (dc.power_stat[0] >= 0) ? 0 : 1;
+                            int st = dc.power_stat[ps];
+                            ImGui::TextWrapped("IVs: Guaranteed %s (%u) from Slot %d + 2 Random from Parents",
+                                               k_iv_names[st], (unsigned)dc.parents[ps].ivs[st], ps + 1);
+                        } else {
+                            ImGui::TextDisabled("IVs: 3 Random IVs inherited from parents (no Power Item)");
+                        }
+
+                        static const char *const k_mult_odds[5] = {
+                            "1/8192", "1/1024", "1/256", "1/64", "100%"
+                        };
+                        int ms = static_cast<int>(dc.shiny_odds_setting);
+                        if (ms < 0 || ms > 4) ms = 0;
+                        if (dc.shiny_odds_setting > 0u) {
+                            ImGui::TextColored(ImVec4(0.98f, 0.84f, 0.28f, 1.0f),
+                                               "Shiny Odds: %s (Shiny Multiplier active%s)",
+                                               k_mult_odds[ms],
+                                               dc.masuda_active ? " + Masuda" : "");
+                        } else if (dc.masuda_active) {
+                            ImGui::TextColored(ImVec4(0.98f, 0.84f, 0.28f, 1.0f),
+                                               "Shiny Odds: ~1/1365 (Masuda Method active - 6x rolls)");
+                        } else {
+                            ImGui::TextDisabled("Shiny Odds: 1/8192 (Masuda inactive - same language)");
+                        }
+                    }
+                }
             }
         }
     }

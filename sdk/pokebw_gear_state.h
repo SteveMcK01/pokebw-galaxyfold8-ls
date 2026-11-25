@@ -76,11 +76,48 @@ typedef struct {
     uint8_t        is_egg;
     uint8_t        status;
     uint8_t        move_count;
-    uint8_t        pad[2];
+    uint8_t        egg_cycles_left;
+    uint8_t        egg_hatch_boost; /* 1 if Flame Body / Magma Armor in party */
+    uint16_t       egg_steps_left;
+    uint16_t       egg_steps_max;
     char           name[24];
     char           species_name[24];
     PokebwGearMove moves[POKEBW_GEAR_MAX_MOVES];
 } PokebwGearMon;
+
+typedef struct {
+    uint8_t  present;
+    uint8_t  gender;        /* 0=M, 1=F, 2=None */
+    uint8_t  level;
+    uint8_t  levels_gained;
+    uint8_t  nature;        /* 0..24 */
+    uint8_t  language;      /* 1=JA, 2=EN, 3=FR, 4=IT, 5=DE, 7=ES, 8=KO */
+    uint8_t  ivs[6];        /* HP, Atk, Def, SpA, SpD, Spe */
+    uint16_t species;
+    uint16_t held_item;
+    char     name[24];
+    char     item_name[24];
+} PokebwGearDaycareParent;
+
+typedef struct {
+    uint8_t                 valid;
+    uint8_t                 parent_count;        /* 0..2 */
+    uint8_t                 egg_ready;           /* 1 if Day Care Man has an Egg */
+    uint8_t                 compat_score;        /* 0, 20, 50, or 70 */
+    uint8_t                 masuda_active;       /* 1 if parents have different language IDs */
+    uint8_t                 everstone_mask;      /* bit 0 = parent 0, bit 1 = parent 1 */
+    uint8_t                 everstone_nature[2]; /* 0..24 */
+    int8_t                  power_stat[2];       /* -1 none, else 0=HP..5=Spe */
+    uint8_t                 shiny_odds_setting;  /* mirror of POKEBW_SET_SHINY_ODDS */
+    uint8_t                 egg_move_count;      /* 0..4 */
+    uint8_t                 egg_alt_flag;        /* 1=Nidoran M/F, 2=Volbeat/Illumise */
+    uint8_t                 egg_cycles;          /* base hatch cycles of previewed egg */
+    uint16_t                egg_species;
+    uint16_t                egg_moves[4];
+    char                    egg_species_name[24];
+    char                    egg_move_names[4][24];
+    PokebwGearDaycareParent parents[2];
+} PokebwGearDaycare;
 
 typedef struct {
     uint16_t species;
@@ -120,6 +157,7 @@ typedef struct {
     uint16_t            bag_pocket_counts[POKEBW_GEAR_BAG_POCKETS];
     uint16_t            pad_bag;
     char                box_names[POKEBW_GEAR_MAX_BOXES][20];
+    PokebwGearDaycare   daycare;
 } PokebwGearSnapshot;
 
 #ifdef __cplusplus

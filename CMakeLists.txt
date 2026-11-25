@@ -3434,7 +3434,8 @@ if(NOT _eidos_ovls STREQUAL "")
             ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_follower.c
             ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_wild.c
             ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_shiny.c
-            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_repel.c)
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_repel.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_hm_shortcut.c)
         target_link_options(eidos_boot PRIVATE
             "-Wl,--wrap=ov010_FLDMMDL_UpdateSysProc"
             "-Wl,--wrap=ov021_FIELDMAP_DeleteMmdlSys"

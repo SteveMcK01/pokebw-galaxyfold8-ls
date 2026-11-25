@@ -70,6 +70,12 @@ unsigned host_pc_request_poll(unsigned long long now_ms);
 void host_pc_request_set_result(int status);
 int  host_pc_last_status(void);
 
+/* Phase 4.4: One-shot Field-Move Quick-Use request (host -> wasm). */
+void host_hm_request_use(int skill_index, unsigned long long now_ms);
+unsigned host_hm_request_poll(unsigned long long now_ms);
+void host_hm_request_set_result(int status);
+int  host_hm_last_status(void);
+
 /* Custom external save folder support (PKForge / emulator .sav interop). */
 const char *host_settings_effective_save_dir(void);
 void host_settings_set_save_dir(const char *new_dir);

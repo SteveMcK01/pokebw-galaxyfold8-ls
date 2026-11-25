@@ -273,6 +273,78 @@ void draw_gear_tab(void)
 
     ImGui::Spacing();
 
+    if (ImGui::CollapsingHeader("Quick Field Moves (HM/TM)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (gear->valid == 0u) {
+            ImGui::TextDisabled("Enter the overworld to use field moves.");
+        } else {
+            static const char *const k_fm_names[POKEBW_GEAR_FIELD_MOVES] = {
+                "Cut", "Fly", "Surf", "Strength", "Waterfall", "Dive", "Flash", "Dig"
+            };
+            int order[POKEBW_GEAR_FIELD_MOVES];
+            int count = 0;
+
+            for (int tier = 0; tier < 3; tier++) {
+                for (int i = 0; i < POKEBW_GEAR_FIELD_MOVES; i++) {
+                    const PokebwGearFieldMove &fm = gear->field_moves[i];
+                    int t = fm.usable ? 0 : (fm.party_slot < 6u ? 1 : 2);
+                    if (t == tier) {
+                        order[count++] = i;
+                    }
+                }
+            }
+
+            if (ImGui::BeginTable("##hm_grid", 2, ImGuiTableFlags_SizingStretchSame)) {
+                for (int k = 0; k < count; k++) {
+                    int idx = order[k];
+                    const PokebwGearFieldMove &fm = gear->field_moves[idx];
+                    const char *mname = k_fm_names[idx];
+
+                    ImGui::TableNextColumn();
+                    ImGui::PushID(idx);
+                    if (fm.usable && fm.party_slot < gear->party_count) {
+                        char btn[64];
+                        std::snprintf(btn, sizeof(btn), "%s (%s)",
+                                      mname, gear->party[fm.party_slot].name);
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.14f, 0.52f, 0.36f, 0.92f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.18f, 0.64f, 0.44f, 1.0f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.42f, 0.28f, 1.0f));
+                        if (ImGui::Button(btn, ImVec2(-1.0f, 0.0f))) {
+                            host_hm_request_use((int)fm.skill_index,
+                                                static_cast<unsigned long long>(SDL_GetTicks()));
+                            g_open = 0;
+                        }
+                        ImGui::PopStyleColor(3);
+                    } else {
+                        const char *reason = "No user";
+                        if (fm.party_slot < 6u) {
+                            switch (fm.skill_index) {
+                            case 0:  reason = "Face tree";    break;
+                            case 4:  reason = "Outdoors only";break;
+                            case 1:  reason = "Face water";   break;
+                            case 3:  reason = "Face boulder"; break;
+                            case 2:  reason = "Face falls";   break;
+                            case 10: reason = "Deep water";   break;
+                            case 5:  reason = "Dark cave";    break;
+                            case 7:  reason = "Caves only";   break;
+                            default: reason = "Blocked";      break;
+                            }
+                        }
+                        char btn[64];
+                        std::snprintf(btn, sizeof(btn), "%s - %s", mname, reason);
+                        ImGui::BeginDisabled();
+                        ImGui::Button(btn, ImVec2(-1.0f, 0.0f));
+                        ImGui::EndDisabled();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+            if (host_hm_last_status() < 0) {
+                ImGui::TextDisabled("Field move unavailable right now (free-roam overworld only).");
+            }
+        }
+    }
+
     if (ImGui::CollapsingHeader("Party", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (gear->valid == 0u || gear->party_count == 0u) {
             ImGui::TextDisabled("Enter the overworld to sync party data.");

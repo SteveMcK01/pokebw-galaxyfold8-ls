@@ -18,6 +18,7 @@
 
 #include "pokebw_gear.h"
 #include "pokebw_gear_state.h"
+#include "pokebw_hm_shortcut.h"
 #include "pokebw_settings_ids.h"
 #include "port.h"
 #include "save_slots.h"
@@ -79,6 +80,7 @@ extern uint32_t ZUKAN_SAVE_IsCaught(void *zukan, uint16_t species) POKEBW_GEAR_W
 extern uint32_t ZUKAN_SAVE_IsSeen(void *zukan, uint16_t species) POKEBW_GEAR_WEAK;
 extern uint16_t ov021_FIELDMAP_GetZoneId(void *fieldMap) POKEBW_GEAR_WEAK;
 extern void pokebw_ow_sprites_stats(uint32_t *out_total, uint32_t *out_custom, uint32_t *out_forms) POKEBW_GEAR_WEAK;
+extern void pokebw_hm_shortcut_fill(void *gameSystem, void *fieldMap, PokebwGearFieldMove out[POKEBW_GEAR_FIELD_MOVES]) POKEBW_GEAR_WEAK;
 
 static struct GearEncountData g_enc_data;
 static uint32_t g_enc_zone = 0xFFFFFFFFu;
@@ -88,6 +90,8 @@ static int g_enc_dirty = 0;
 
 static uint32_t g_last_zone = 0xFFFFFFFFu;
 static uint32_t g_frame_counter = 0u;
+static uint32_t g_last_hm_usable = 0xFFFFFFFFu;
+static uint32_t g_last_hm_slots = 0xFFFFFFFFu;
 static PokebwGearSnapshot g_snap;
 
 /* ------------------------------------------------------------------ */
@@ -350,6 +354,10 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
     uint32_t i, n;
     int h;
 
+    PokebwGearFieldMove cur_hm[POKEBW_GEAR_FIELD_MOVES];
+    uint32_t hm_usable_mask = 0u;
+    uint32_t hm_slots_sig = 0u;
+
     if (gameSystem == NULL || fieldMap == NULL || GAMESYSTEM_GetGameData == NULL) {
         return;
     }
@@ -357,8 +365,23 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
         zone_id = (uint32_t)ov021_FIELDMAP_GetZoneId(fieldMap);
     }
 
+    memset(cur_hm, 0, sizeof(cur_hm));
+    if (pokebw_hm_shortcut_fill != NULL) {
+        uint32_t k;
+        pokebw_hm_shortcut_fill(gameSystem, fieldMap, cur_hm);
+        for (k = 0u; k < POKEBW_GEAR_FIELD_MOVES; k++) {
+            if (cur_hm[k].usable) {
+                hm_usable_mask |= (1u << k);
+            }
+            hm_slots_sig = (hm_slots_sig * 17u) ^ ((uint32_t)cur_hm[k].party_slot + ((uint32_t)cur_hm[k].blocked_code << 4));
+        }
+    }
+
     g_frame_counter++;
-    if (!g_enc_dirty && zone_id == g_last_zone && (g_frame_counter % 30u) != 1u) {
+    if (!g_enc_dirty && zone_id == g_last_zone &&
+        hm_usable_mask == g_last_hm_usable &&
+        hm_slots_sig == g_last_hm_slots &&
+        (g_frame_counter % 30u) != 1u) {
         return;
     }
 
@@ -368,9 +391,12 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
     }
 
     g_last_zone = zone_id;
+    g_last_hm_usable = hm_usable_mask;
+    g_last_hm_slots = hm_slots_sig;
     g_enc_dirty = 0;
 
     memset(&g_snap, 0, sizeof(g_snap));
+    memcpy(g_snap.field_moves, cur_hm, sizeof(g_snap.field_moves));
     g_snap.valid = 1u;
     g_snap.zone_id = zone_id;
     g_snap.catch_em_all_active = bw_pokebw_setting(POKEBW_SET_CATCH_EM_ALL) ? 1u : 0u;

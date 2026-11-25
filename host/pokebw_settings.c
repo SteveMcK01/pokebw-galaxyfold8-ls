@@ -25,6 +25,10 @@ static int g_pc_req_pending = 0;
 static int g_pc_req_mode = 2;
 static unsigned long long g_pc_req_ms = 0;
 static int g_pc_last_status = 0;
+static int g_hm_req_pending = 0;
+static int g_hm_req_skill = 0;
+static unsigned long long g_hm_req_ms = 0;
+static int g_hm_last_status = 0;
 static char g_default_save_dir[1024] = "";
 static int g_save_dir_dirty = 0;
 static char g_save_dir_status[160] = "";
@@ -435,6 +439,41 @@ void host_pc_request_set_result(int status)
 int host_pc_last_status(void)
 {
     return g_pc_last_status;
+}
+
+void host_hm_request_use(int skill_index, unsigned long long now_ms)
+{
+    if (skill_index < 0 || skill_index > 15) {
+        return;
+    }
+    g_hm_req_skill = skill_index;
+    g_hm_req_pending = 1;
+    g_hm_req_ms = now_ms;
+    g_hm_last_status = 0;
+}
+
+unsigned host_hm_request_poll(unsigned long long now_ms)
+{
+    if (!g_hm_req_pending) {
+        return 0u;
+    }
+    if (now_ms > g_hm_req_ms && (now_ms - g_hm_req_ms) > 1500ull) {
+        g_hm_req_pending = 0;
+        g_hm_last_status = -1;
+        return 0u;
+    }
+    g_hm_req_pending = 0;
+    return (unsigned)(g_hm_req_skill + 1);
+}
+
+void host_hm_request_set_result(int status)
+{
+    g_hm_last_status = status;
+}
+
+int host_hm_last_status(void)
+{
+    return g_hm_last_status;
 }
 
 const char *host_settings_effective_save_dir(void)

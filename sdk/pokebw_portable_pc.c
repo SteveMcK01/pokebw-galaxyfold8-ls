@@ -18,6 +18,7 @@
 
 #include "pokebw_follower.h"
 #include "pokebw_gear.h"
+#include "pokebw_hm_shortcut.h"
 #include "pokebw_settings_ids.h"
 #include "pokebw_wild.h"
 
@@ -278,6 +279,12 @@ void *__wrap_ov021_FIELD_EVENT_CHECK_RunGrid(void *gameSystem, void *fieldMapArg
             return wild_ev;
         }
     }
+    {
+        void *hm_ev = pokebw_hm_shortcut_try_run(gameSystem, fieldMapArg, 0);
+        if (hm_ev != NULL) {
+            return hm_ev;
+        }
+    }
     return pokebw_try_open_pc(gameSystem, fieldMapArg, 0);
 }
 
@@ -289,5 +296,11 @@ void *__wrap_ov021_FIELD_EVENT_CHECK_RunRail(void *gameSystem, void *fieldMapArg
     }
     pokebw_gear_on_field_tick(gameSystem, fieldMapArg);
     pokebw_follower_on_a_press(gameSystem, fieldMapArg);
+    {
+        void *hm_ev = pokebw_hm_shortcut_try_run(gameSystem, fieldMapArg, 1);
+        if (hm_ev != NULL) {
+            return hm_ev;
+        }
+    }
     return pokebw_try_open_pc(gameSystem, fieldMapArg, 1);
 }

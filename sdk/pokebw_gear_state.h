@@ -17,6 +17,14 @@ extern "C" {
 #define POKEBW_GEAR_MAX_MOVES 4
 #define POKEBW_GEAR_HABITATS  7
 #define POKEBW_GEAR_MAX_ENC   12
+#define POKEBW_GEAR_FIELD_MOVES 8
+
+typedef struct {
+    uint8_t skill_index;  /* 0=Cut, 4=Fly, 1=Surf, 3=Strength, 2=Waterfall, 10=Dive, 5=Flash, 7=Dig */
+    uint8_t party_slot;   /* 0..5 eligible party member, or 0xFF if none */
+    uint8_t usable;       /* 1 if usable right now on current tile/zone, else 0 */
+    uint8_t blocked_code; /* 0=ok, 1..4=game block reason, 5=no party user */
+} PokebwGearFieldMove;
 
 typedef struct {
     uint16_t id;
@@ -70,8 +78,9 @@ typedef struct {
     uint8_t           active_save_slot;
     uint8_t           pad[3];
     char              zone_name[48];
-    PokebwGearMon     party[POKEBW_GEAR_MAX_PARTY];
-    PokebwGearHabitat habitats[POKEBW_GEAR_HABITATS];
+    PokebwGearMon       party[POKEBW_GEAR_MAX_PARTY];
+    PokebwGearHabitat   habitats[POKEBW_GEAR_HABITATS];
+    PokebwGearFieldMove field_moves[POKEBW_GEAR_FIELD_MOVES];
 } PokebwGearSnapshot;
 
 #ifdef __cplusplus

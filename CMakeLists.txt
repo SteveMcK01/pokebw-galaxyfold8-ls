@@ -3433,14 +3433,18 @@ if(NOT _eidos_ovls STREQUAL "")
         target_sources(eidos_boot PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_follower.c
             ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_wild.c
-            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_shiny.c)
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_shiny.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_repel.c)
         target_link_options(eidos_boot PRIVATE
             "-Wl,--wrap=ov010_FLDMMDL_UpdateSysProc"
             "-Wl,--wrap=ov021_FIELDMAP_DeleteMmdlSys"
             "-Wl,--wrap=ov021_FLDMMDL_BLACT_AddRes"
             "-Wl,--wrap=ov021_FIELD_ENCOUNT_CreatePersonality"
             "-Wl,--wrap=POKE_TOOL_CreatePersonalRnd"
-            "-Wl,--wrap=ov021_SODATEYA_ApplyMasudaMethod")
+            "-Wl,--wrap=ov021_SODATEYA_ApplyMasudaMethod"
+            "-Wl,--wrap=MOVE_POKEMON_SAVE_SetCooldown"
+            "-Wl,--wrap=MOVE_POKEMON_SAVE_TickCooldown"
+            "-Wl,--wrap=ov010_SCRIPT_SYS_CreateScriptEventSimple")
     endif()
 
     # test_ovlink_title: every overlay of the set loaded from the extract in

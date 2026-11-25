@@ -42,6 +42,7 @@ enum {
     POKEBW_SET_FAST_FORWARD       = 50, /* 0 Off, 1 On (runtime toggle) */
     POKEBW_SET_FAST_FORWARD_SPEED = 51, /* 0=2x, 1=3x, 2=4x, 3=Max */
     POKEBW_SET_SHINY_ODDS         = 52, /* 0=1/8192, 1=1/1024, 2=1/256, 3=1/64, 4=100% */
+    POKEBW_SET_REPEL_PROMPT       = 53, /* 0 Off, 1 On (BW2-style Repel reuse prompt) */
 };
 
 /* Mirror of engine/platform/settings.h EIDOS_OPT_* IDs exposed to ImGui. */
@@ -79,7 +80,8 @@ static inline int bw_pokebw_setting(int id)
             id == POKEBW_SET_PORTABLE_PC ||
             id == POKEBW_SET_TYPE_EFFECTIVENESS ||
             id == POKEBW_SET_FOLLOWING_POKEMON ||
-            id == POKEBW_SET_OVERWORLD_WILDS) ? 1 : 0;
+            id == POKEBW_SET_OVERWORLD_WILDS ||
+            id == POKEBW_SET_REPEL_PROMPT) ? 1 : 0;
 }
 #endif
 

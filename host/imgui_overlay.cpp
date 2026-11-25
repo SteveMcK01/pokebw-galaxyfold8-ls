@@ -630,6 +630,9 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                         help_marker("Applies to wild Pokemon, overworld wilds, static legendaries, starters/gifts, and hatched eggs while preserving nature, gender, and ability.");
                     }
                     ImGui::Separator();
+                    setting_checkbox("\"Use Another Repel?\" Prompt",
+                                     "When Repel wears off, prompts to immediately apply another Repel from your Bag (Black 2 / White 2 style).",
+                                     &cfg->repel_prompt);
                     eidos_checkbox("Instant Text",
                                    "Print each dialogue page at once while keeping page-turn pauses.",
                                    POKEBW_EIDOS_OPT_INSTANT_TEXT);

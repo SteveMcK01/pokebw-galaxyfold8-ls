@@ -208,10 +208,20 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           (
-            gh release delete bw-fold-android-latest --yes --cleanup-tag 2>/dev/null || true
-            gh release create bw-fold-android-latest pokebw-fold.apk \
-              --prerelease \
-              --target "$GITHUB_SHA" \
-              --title "PokéBW Fold Android build (latest)" \
-              --notes "Rolling arm64-v8a build of ${GITHUB_SHA::8} (run ${{ github.run_number }}), replaced on every push to bw-fold."
+            TAG="bw-fold-android-latest"
+            NOTES="Rolling arm64-v8a build of ${GITHUB_SHA::8} (run ${{ github.run_number }}), replaced on every push to bw-fold."
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true || true
+              gh release upload "$TAG" pokebw-fold.apk --clobber
+              gh release edit "$TAG" \
+                --prerelease \
+                --title "PokéBW Fold Android build (latest)" \
+                --notes "$NOTES"
+            else
+              gh release create "$TAG" pokebw-fold.apk \
+                --prerelease \
+                --target "$GITHUB_SHA" \
+                --title "PokéBW Fold Android build (latest)" \
+                --notes "$NOTES"
+            fi
           )

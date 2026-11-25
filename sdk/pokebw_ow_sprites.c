@@ -460,6 +460,9 @@ int pokebw_ow_sprites_register(void)
     }
     g_registered = -1;
 
+    uint32_t rec_count, r;
+    int found_anim14 = 0;
+
     if (bw_arc_open(&arc_tbl, "a/0/4/8") != 0) {
         return -1;
     }
@@ -469,7 +472,20 @@ int pokebw_ow_sprites_register(void)
         free(tbl_buf);
         return -1;
     }
+    rec_count = rd32_le(tbl_buf);
+    if (rec_count > (tbl_size - 4u) / PARAM_RECORD_SIZE) {
+        rec_count = (tbl_size - 4u) / PARAM_RECORD_SIZE;
+    }
     memcpy(&tmpl, tbl_buf + 4u + WALK_TEMPLATE_CODE * PARAM_RECORD_SIZE, PARAM_RECORD_SIZE);
+    for (r = 0u; r < rec_count; r++) {
+        struct PokebwMmdlObjCodeParam cand;
+        memcpy(&cand, tbl_buf + 4u + r * PARAM_RECORD_SIZE, PARAM_RECORD_SIZE);
+        if (cand.drawType == 1u && cand.animId == ANIM_ID_8FRAME) {
+            tmpl = cand;
+            found_anim14 = 1;
+            break;
+        }
+    }
     free(tbl_buf);
 
     if (bw_arc_open(&arc_spr, "a/0/4/9") != 0) {
@@ -620,10 +636,25 @@ int pokebw_ow_sprites_register(void)
 
     bw_vfs_flush_path("a/0/4/9");
     g_registered = 1;
-    fprintf(stderr, "eidos: ow_sprites: %u registered (%u custom .bwsp, %u alt forms, %u ROM synth)\n",
+    fprintf(stderr,
+            "eidos: ow_sprites: %u registered (%u custom .bwsp, %u alt forms, %u ROM synth, tmpl drawProc=%u anim14=%d)\n",
             (unsigned)g_entry_count, (unsigned)g_custom_count, (unsigned)g_form_count,
-            (unsigned)(g_entry_count - g_custom_count));
+            (unsigned)(g_entry_count - g_custom_count),
+            (unsigned)tmpl.drawProcNo, found_anim14);
     return 0;
+}
+
+uint8_t pokebw_ow_sprite_mdl_size(uint16_t objCode)
+{
+    uint32_t slot;
+    if (objCode < POKEBW_OW_OBJCODE_BASE || objCode >= POKEBW_OW_OBJCODE_END) {
+        return 0u;
+    }
+    slot = objCode - POKEBW_OW_OBJCODE_BASE;
+    if (slot < g_entry_count && g_entries[slot].active) {
+        return g_entries[slot].param.mdlSize;
+    }
+    return 0u;
 }
 
 uint16_t pokebw_ow_sprite_objcode(uint16_t species, uint8_t form, int shiny)

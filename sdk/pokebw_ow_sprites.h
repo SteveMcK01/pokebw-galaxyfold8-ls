@@ -22,6 +22,7 @@ extern "C" {
 
 int pokebw_ow_sprites_register(void);
 uint16_t pokebw_ow_sprite_objcode(uint16_t species, uint8_t form, int shiny);
+uint8_t pokebw_ow_sprite_mdl_size(uint16_t objCode);
 int pokebw_ow_sprites_is_code(uint32_t objCode);
 void pokebw_ow_sprites_stats(uint32_t *out_total, uint32_t *out_custom, uint32_t *out_forms);
 

@@ -29,6 +29,7 @@ typedef struct {
     int hm_no_badges;
     int catch_em_all;
     int portable_pc;
+    int following_pokemon;
 
     /* QoL */
     int hard_level_cap;

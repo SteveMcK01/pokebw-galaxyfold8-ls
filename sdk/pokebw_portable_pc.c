@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "pokebw_follower.h"
 #include "pokebw_gear.h"
 #include "pokebw_settings_ids.h"
 
@@ -269,6 +270,7 @@ void *__wrap_ov021_FIELD_EVENT_CHECK_RunGrid(void *gameSystem, void *fieldMapArg
         return ev;
     }
     pokebw_gear_on_field_tick(gameSystem, fieldMapArg);
+    pokebw_follower_on_a_press(gameSystem, fieldMapArg);
     return pokebw_try_open_pc(gameSystem, fieldMapArg, 0);
 }
 
@@ -279,5 +281,6 @@ void *__wrap_ov021_FIELD_EVENT_CHECK_RunRail(void *gameSystem, void *fieldMapArg
         return ev;
     }
     pokebw_gear_on_field_tick(gameSystem, fieldMapArg);
+    pokebw_follower_on_a_press(gameSystem, fieldMapArg);
     return pokebw_try_open_pc(gameSystem, fieldMapArg, 1);
 }

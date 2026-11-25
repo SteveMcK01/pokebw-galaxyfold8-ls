@@ -559,6 +559,9 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     setting_checkbox("Gotta Catch 'Em All! Mode",
                                      "Unlocks version exclusives, National Dex spawns, and events.",
                                      &cfg->catch_em_all);
+                    setting_checkbox("Following Pokemon",
+                                     "Your first conscious party Pokemon walks behind you on the overworld. Press A facing it to hear its cry.",
+                                     &cfg->following_pokemon);
                     ImGui::Separator();
                     setting_checkbox("Portable PC Box Access",
                                      "Open Unova PC Boxes anywhere on the overworld (blocked during battles, cutscenes, or restricted areas).",

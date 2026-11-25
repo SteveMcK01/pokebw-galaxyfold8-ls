@@ -3426,6 +3426,17 @@ if(NOT _eidos_ovls STREQUAL "")
             "-Wl,--wrap=ov010_FLDMMDL_LoadObjCodeParam")
     endif()
 
+    # PokeBW Fold Phase 3.2: Native C Following Pokémon
+    if(NOT MSVC AND NOT APPLE AND EIDOS_BOOT AND
+       (_eidos_ovls STREQUAL "ALL" OR
+        (";${_eidos_ovls};" MATCHES ";10;" AND ";${_eidos_ovls};" MATCHES ";21;")))
+        target_sources(eidos_boot PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_follower.c)
+        target_link_options(eidos_boot PRIVATE
+            "-Wl,--wrap=ov010_FLDMMDL_UpdateSysProc"
+            "-Wl,--wrap=ov021_FIELDMAP_DeleteMmdlSys")
+    endif()
+
     # test_ovlink_title: every overlay of the set loaded from the extract in
     # turn, its tables checked against the player's files.  Without the
     # boot only: with it the overlays' ARM9 callees are the boot's, and

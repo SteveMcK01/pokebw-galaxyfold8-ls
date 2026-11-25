@@ -450,6 +450,17 @@ void draw_gear_tab(void)
             ImGui::TextWrapped("%s", host_backup_status());
         }
     }
+
+    if (gear->valid != 0u && gear->ow_sprites_total > 0u) {
+        unsigned synth = (gear->ow_sprites_total >= gear->ow_sprites_custom)
+                             ? (unsigned)(gear->ow_sprites_total - gear->ow_sprites_custom)
+                             : 0u;
+        ImGui::Spacing();
+        ImGui::TextDisabled("Overworld Sprite Archive: %u ready (%u custom .bwsp, %u ROM synth)",
+                            (unsigned)gear->ow_sprites_total,
+                            (unsigned)gear->ow_sprites_custom,
+                            synth);
+    }
 }
 
 void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)

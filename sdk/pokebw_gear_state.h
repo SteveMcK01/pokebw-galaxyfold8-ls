@@ -61,6 +61,8 @@ typedef struct {
 typedef struct {
     uint32_t          valid;
     uint32_t          zone_id;
+    uint16_t          ow_sprites_total;
+    uint16_t          ow_sprites_custom;
     uint8_t           season;
     uint8_t           party_count;
     uint8_t           has_encounters;

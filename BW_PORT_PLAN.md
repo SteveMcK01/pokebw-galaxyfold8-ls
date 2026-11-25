@@ -28,7 +28,7 @@
 3. **Gear Companion & Unova Route Radar (Done):** Added the **Gear** tab in `host/imgui_overlay.cpp` backed by live `gear_push` telemetry (`sdk/pokebw_gear.c`, `sdk/pokebw_gear_state.h`, `host/main.c`, `host/pokebw_settings.c`): displays party move-pill cards, save backup slots (`1..3` alongside `eidos` slots `1..8`), and the live Unova Route Radar (Seasons, Dark Grass, Phenomena, Surfing/Fishing, Pokédex Caught/Seen/New status).
 
 ### Phase 3: 649-Species Sprites, Following Pokémon & Overworld Wilds (Medium-High -> High)
-1. **649-Species Sprite Archive (Medium-High):** Python build pipeline packing normal + shiny + form `NSBTX` sprites into a built-in `eidos` NARC VFS mod pack (`sdk/vfs_narc.c`).
+1. **649-Species Sprite Archive (Done):** Added `tools/pack_ow_sprites.py` (encodes 4×4/4×2/2×4/1×8 PNG sprite sheets and `.nsbtx`/`.btx0` files into compact `.bwsp` packs) paired with `sdk/pokebw_ow_sprites.c` (injects custom `.bwsp` sprites + automatic cartridge `a/0/0/7` 8-frame `BTX0` synthesis for all 649 species, shiny variants, and alternate forms into `a/0/4/9` via `bw_vfs_mem_set`, wrapping `ov010_FLDMMDL_LoadObjCodeParam` for `0x4000..0x5FFF`).
 2. **Native C Following Pokémon (High):** `FieldPlayer` C follower controller handling Unova curved cameras, 3D bridges, auto-hide during `ScriptContext` locks, and leak-free task cleanup.
 3. **Overworld Wild Pokémon (High):** Visible roaming grass/cave/water spawns (`1-6` density, live shiny visuals, season-aware tables, touch encounters).
 4. **Android Link Play Polish (Medium):** 32-bit DS pointer safety is already guaranteed by the `wasm32` -> `wasm2c` pipeline, and wireless Link Play / co-op is already implemented in `eidos` over `metaxy`; validate and polish Android Link Play flows.

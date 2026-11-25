@@ -78,6 +78,7 @@ extern void *ZUKAN_SAVE_GetFromGameData(void *gd) POKEBW_GEAR_WEAK;
 extern uint32_t ZUKAN_SAVE_IsCaught(void *zukan, uint16_t species) POKEBW_GEAR_WEAK;
 extern uint32_t ZUKAN_SAVE_IsSeen(void *zukan, uint16_t species) POKEBW_GEAR_WEAK;
 extern uint16_t ov021_FIELDMAP_GetZoneId(void *fieldMap) POKEBW_GEAR_WEAK;
+extern void pokebw_ow_sprites_stats(uint32_t *out_total, uint32_t *out_custom, uint32_t *out_forms) POKEBW_GEAR_WEAK;
 
 static struct GearEncountData g_enc_data;
 static uint32_t g_enc_zone = 0xFFFFFFFFu;
@@ -374,6 +375,12 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
     g_snap.zone_id = zone_id;
     g_snap.catch_em_all_active = bw_pokebw_setting(POKEBW_SET_CATCH_EM_ALL) ? 1u : 0u;
     g_snap.active_save_slot = (uint8_t)bw_slots_current();
+    if (pokebw_ow_sprites_stats != NULL) {
+        uint32_t spr_total = 0u, spr_custom = 0u;
+        pokebw_ow_sprites_stats(&spr_total, &spr_custom, NULL);
+        g_snap.ow_sprites_total = spr_total > 0xFFFFu ? 0xFFFFu : (uint16_t)spr_total;
+        g_snap.ow_sprites_custom = spr_custom > 0xFFFFu ? 0xFFFFu : (uint16_t)spr_custom;
+    }
 
     if (GAME_DATA_GetSeason != NULL) {
         g_snap.season = (uint8_t)(GAME_DATA_GetSeason(gd) & 3u);

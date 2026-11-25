@@ -85,6 +85,7 @@
 #include "bw_limits.h"
 #include "mod_menu.h"
 #include "avatar.h"              /* the other players' figures, each in its look */
+extern int pokebw_ow_sprites_register(void) __attribute__((weak));
 #include "mod_net.h"
 #include "save.h"
 #include "mod_title.h"
@@ -3113,6 +3114,9 @@ static int boot_run_start(EidosFrameHooks *hooks, int own_thread)
      * object codes go in before a field opens the archives
      * (engine/avatar/avatar_field.c) */
     (void)avatar_field_register();
+    if (pokebw_ow_sprites_register != NULL) {
+        (void)pokebw_ow_sprites_register();
+    }
     /* The content limits the mods raise, and the game's per-id tables
      * extended to match (sdk/limits.h): the mod list is final and the
      * game's data is bound, and nothing of the game has run yet. */

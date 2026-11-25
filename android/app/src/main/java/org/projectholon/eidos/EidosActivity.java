@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.Settings;
@@ -16,6 +17,8 @@ import org.libsdl.app.SDLActivity;
 import org.libsdl.app.SDLSurface;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 
 /*
  * eidos on Android: SDL's activity, with one change to what the game is
@@ -52,6 +55,36 @@ public class EidosActivity extends SDLActivity {
                 SDLActivity.onNativeInsetsChanged(in.left, in.right, in.top, in.bottom);
             }
             return out;
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        extractBundledSpritePack();
+    }
+
+    private void extractBundledSpritePack() {
+        final String name = "pokebw_ow_sprites.bwsp";
+        File dst = new File(getFilesDir(), name);
+        try (InputStream in = getAssets().open(name)) {
+            File tmp = new File(getFilesDir(), name + ".tmp");
+            try (FileOutputStream out = new FileOutputStream(tmp)) {
+                byte[] buf = new byte[16384];
+                int n;
+                long total = 0;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                    total += n;
+                }
+                if (dst.exists() && dst.length() == total) {
+                    tmp.delete();
+                    return;
+                }
+            }
+            tmp.renameTo(dst);
+        } catch (Exception ignored) {
+            /* No bundled .bwsp pack in APK assets; runtime falls back to ROM synthesis. */
         }
     }
 

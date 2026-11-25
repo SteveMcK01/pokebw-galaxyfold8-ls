@@ -32,3 +32,14 @@
 2. ~~**Native C Following Pokémon (High):**~~ **Done (`bw-fold`)**: Added `sdk/pokebw_follower.{h,c}` (`ov010_FLDMMDL_UpdateSysProc` & `ov021_FIELDMAP_DeleteMmdlSys` wraps + A-button cry/hop in `sdk/pokebw_portable_pc.c`) driving the lead conscious party Pokémon behind the player across grid/rail/curved-camera maps with auto-hide during cutscenes/Surf/Dive/wipes and `POKEBW_SET_FOLLOWING_POKEMON` in the ImGui `Gameplay` tab.
 3. **Overworld Wild Pokémon (High):** Visible roaming grass/cave/water spawns (`1-6` density, live shiny visuals, season-aware tables, touch encounters).
 4. **Android Link Play Polish (Medium):** 32-bit DS pointer safety is already guaranteed by the `wasm32` -> `wasm2c` pipeline, and wireless Link Play / co-op is already implemented in `eidos` over `metaxy`; validate and polish Android Link Play flows.
+
+### Phase 4: Extended QoL, Battle Convenience & Gear Suite (Low -> High)
+1. **Fast-Forward / Speed-Up Toggle (Low):** Configurable speed multiplier + toggle button/pill for accelerated overworld and battle pacing.
+2. **Shiny Odds Multiplier (Low):** Configurable `1/8192` (vanilla), `1/1024`, `1/256`, `1/64`, or `100%` odds across wild Pokémon, static legendaries, and hatched eggs while preserving nature, gender, and ability.
+3. **"Use Another Repel?" Prompt (Low-Medium):** Backport the *Black 2 / White 2* Repel-expiry reuse prompt into *Black 1 / White 1* whenever another Repel is in the Bag.
+4. **In-Game HM/TM Quick-Use Shortcut (Medium):** One-tap field-move submenu (Cut, Fly, Surf, Strength, Waterfall, Dive, Flash, Dig) sorted with currently usable moves at the top so players do not need to open the Party screen.
+5. **Poké Ball Quick-Throw Carousel (Medium):** `< [Poké Ball + Qty] >` quick-throw carousel directly on the battle screen for one-tap ball throwing.
+6. **Gear — PC Box & Bag Auto-Sorter (Medium):** Sort PC boxes (by Dex#, name, level, or type) and Bag pockets directly from the Gear tab.
+7. **Gear — Egg Step Counter & Day Care Preview (Medium):** Live steps remaining to hatch party eggs plus Route 3 Day Care compatibility, egg species/moves, Everstone nature, Masuda odds, and IV inheritance preview.
+8. **Gear — Built-in Pokédex Lookup (Medium-High):** A–Z ROM-driven Pokédex lookup showing base stats, abilities, evolutions, full learnsets (level/TM/egg/tutor), and encounter locations.
+9. **Gear — Overhead Area Item Map (High):** Top-down live map of the current route highlighting uncollected item balls and hidden Dowsing Machine items.

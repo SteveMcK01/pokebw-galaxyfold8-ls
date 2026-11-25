@@ -310,7 +310,20 @@ void w2c_eidos_gear_push(struct w2c_eidos *e, u32 data, u32 size)
  * addr2line (the translated functions carry the module's names). */
 void host_trap(wasm_rt_trap_t code)
 {
-    fprintf(stderr, "eidos: the game stopped (wasm trap: %s)\n", wasm_rt_strerror(code));
+    const char *msg = wasm_rt_strerror(code);
+    const char *save_dir = host_settings_effective_save_dir();
+
+    fprintf(stderr, "eidos: the game stopped (wasm trap: %s)\n", msg);
+    if (save_dir != NULL && save_dir[0] != '\0') {
+        char path[1152];
+        FILE *cf;
+        snprintf(path, sizeof path, "%s/pokebw_last_crash.txt", save_dir);
+        cf = fopen(path, "w");
+        if (cf != NULL) {
+            fprintf(cf, "wasm trap: %s (code %d)\n", msg ? msg : "unknown", (int)code);
+            fclose(cf);
+        }
+    }
 #if defined(_WIN32)
     {
         void *frames[48];

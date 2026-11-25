@@ -34,6 +34,7 @@
 #include <string.h>
 
 #include "port.h"
+#include "plat_thread.h"
 #include "vfs.h"
 #include "plat_dir.h"
 #include "vfs_msg.h"
@@ -480,10 +481,7 @@ static char *dup_str(const char *s)
     return d;
 }
 
-/* The port's own layer (root "") holds a member of this path: it applies
- * with no mod loaded too (the port's sprites for the other players' looks,
- * engine/avatar/avatar_field.c). */
-static int port_layer_has(const char *rel)
+static int port_layer_has_locked(const char *rel)
 {
     u32 k;
 
@@ -495,11 +493,23 @@ static int port_layer_has(const char *rel)
     return 0;
 }
 
+static int port_layer_has(const char *rel)
+{
+    int has;
+
+    bw_shared_lock();
+    has = port_layer_has_locked(rel);
+    bw_shared_unlock();
+    return has;
+}
+
 int bw_vfs_mem_set(const char *root, const char *rel, u32 index,
                    const void *data, u32 size)
 {
     int at;
     u8 *copy;
+    u8 *old_data = NULL;
+    int rc = 0;
 
     if (root == NULL || rel == NULL || index >= BW_NARC_MAX_MEMBERS ||
         (data == NULL && size != 0)) {
@@ -512,43 +522,51 @@ int bw_vfs_mem_set(const char *root, const char *rel, u32 index,
     if (size != 0) {
         memcpy(copy, data, size);
     }
+    bw_shared_lock();
     at = mem_find(root, rel, index);
     if (at >= 0) {
-        free(g_mem[at].data);
+        old_data = g_mem[at].data;
         g_mem[at].data = copy;
         g_mem[at].size = size;
-        return 0;
-    }
-    if (g_mem_count == g_mem_cap) {
-        u32 cap = g_mem_cap == 0 ? 64 : g_mem_cap * 2;
-        MemMember *grown = (MemMember *)realloc(g_mem, cap * sizeof(*grown));
+        copy = NULL;
+    } else {
+        if (g_mem_count == g_mem_cap) {
+            u32 cap = g_mem_cap == 0 ? 64 : g_mem_cap * 2;
+            MemMember *grown = (MemMember *)realloc(g_mem, cap * sizeof(*grown));
 
-        if (grown == NULL) {
-            free(copy);
-            return -1;
+            if (grown == NULL) {
+                rc = -1;
+                goto done;
+            }
+            g_mem = grown;
+            g_mem_cap = cap;
         }
-        g_mem = grown;
-        g_mem_cap = cap;
+        g_mem[g_mem_count].root = dup_str(root);
+        g_mem[g_mem_count].rel = dup_str(rel);
+        if (g_mem[g_mem_count].root == NULL || g_mem[g_mem_count].rel == NULL) {
+            free(g_mem[g_mem_count].root);
+            free(g_mem[g_mem_count].rel);
+            rc = -1;
+            goto done;
+        }
+        g_mem[g_mem_count].index = index;
+        g_mem[g_mem_count].data = copy;
+        g_mem[g_mem_count].size = size;
+        g_mem_count++;
+        copy = NULL;
     }
-    g_mem[g_mem_count].root = dup_str(root);
-    g_mem[g_mem_count].rel = dup_str(rel);
-    if (g_mem[g_mem_count].root == NULL || g_mem[g_mem_count].rel == NULL) {
-        free(g_mem[g_mem_count].root);
-        free(g_mem[g_mem_count].rel);
-        free(copy);
-        return -1;
-    }
-    g_mem[g_mem_count].index = index;
-    g_mem[g_mem_count].data = copy;
-    g_mem[g_mem_count].size = size;
-    g_mem_count++;
-    return 0;
+done:
+    bw_shared_unlock();
+    free(old_data);
+    free(copy);
+    return rc;
 }
 
 u32 bw_vfs_mem_clear(const char *root, const char *rel, u32 index)
 {
     u32 i = 0, removed = 0;
 
+    bw_shared_lock();
     while (i < g_mem_count) {
         MemMember *m = &g_mem[i];
 
@@ -565,6 +583,7 @@ u32 bw_vfs_mem_clear(const char *root, const char *rel, u32 index)
         }
         i++;
     }
+    bw_shared_unlock();
     return removed;
 }
 
@@ -573,33 +592,45 @@ u32 bw_vfs_mem_bytes(const char *root)
     u32 i;
     u64 total = 0;
 
+    bw_shared_lock();
     for (i = 0; i < g_mem_count; i++) {
         if (root == NULL || strcmp(g_mem[i].root, root) == 0) {
             total += g_mem[i].size;
         }
     }
+    bw_shared_unlock();
     return total > 0xFFFFFFFFull ? 0xFFFFFFFFu : (u32)total;
 }
 
 int bw_vfs_mem_size(const char *root, const char *rel, u32 index)
 {
-    int at = mem_find(root, rel, index);
+    int sz;
 
-    return at < 0 ? -1 : (int)g_mem[at].size;
+    bw_shared_lock();
+    {
+        int at = mem_find(root, rel, index);
+        sz = at < 0 ? -1 : (int)g_mem[at].size;
+    }
+    bw_shared_unlock();
+    return sz;
 }
 
 u32 bw_vfs_mem_list(u32 n, const char **rel, u32 *index)
 {
-    if (n >= g_mem_count) {
-        return 0;
+    u32 ok = 0;
+
+    bw_shared_lock();
+    if (n < g_mem_count) {
+        if (rel != NULL) {
+            *rel = g_mem[n].rel;
+        }
+        if (index != NULL) {
+            *index = g_mem[n].index;
+        }
+        ok = 1;
     }
-    if (rel != NULL) {
-        *rel = g_mem[n].rel;
-    }
-    if (index != NULL) {
-        *index = g_mem[n].index;
-    }
-    return 1;
+    bw_shared_unlock();
+    return ok;
 }
 
 static int add_entry(Override **list, u32 *count, u32 *cap, u32 index,
@@ -730,36 +761,42 @@ static int collect(const char *rel, int layer, Collect *c)
             }
         }
         /* the mod's memory layer, over its folder */
+        bw_shared_lock();
         for (k = 0; k < g_mem_count; k++) {
             if (strcmp(g_mem[k].rel, rel) != 0 || strcmp(g_mem[k].root, root) != 0) {
                 continue;
             }
             if (add_entry(&c->list, &c->count, &c->cap, g_mem[k].index,
                           i * 2u + 1u, NULL) != 0) {
+                bw_shared_unlock();
                 free_collect(c);
                 return -1;
             }
             c->list[c->count - 1].mem = g_mem[k].data;
             c->list[c->count - 1].mem_size = g_mem[k].size;
         }
+        bw_shared_unlock();
     }
     /* The port's own layer (root ""), over every mod: what the port puts
      * in for a moment, the title of a mod's text input (sdk/mod_v6.c). */
     {
         u32 k;
 
+        bw_shared_lock();
         for (k = 0; k < g_mem_count; k++) {
             if (g_mem[k].root[0] != '\0' || strcmp(g_mem[k].rel, rel) != 0) {
                 continue;
             }
             if (add_entry(&c->list, &c->count, &c->cap, g_mem[k].index,
                           n * 2u + 1u, NULL) != 0) {
+                bw_shared_unlock();
                 free_collect(c);
                 return -1;
             }
             c->list[c->count - 1].mem = g_mem[k].data;
             c->list[c->count - 1].mem_size = g_mem[k].size;
         }
+        bw_shared_unlock();
     }
     if (c->count == 0) {
         return 0;
@@ -1150,6 +1187,7 @@ void bw_vfs_flush(void)
 {
     u32 i;
 
+    bw_shared_lock();
     for (i = 0; i < g_merged_cap; i++) {
         if (g_merged[i].rel == NULL) {
             continue;
@@ -1160,12 +1198,14 @@ void bw_vfs_flush(void)
             g_merged[i].stale = 1;
         }
     }
+    bw_shared_unlock();
 }
 
 void bw_vfs_flush_path(const char *rel)
 {
     u32 i;
 
+    bw_shared_lock();
     for (i = 0; i < g_merged_cap; i++) {
         if (g_merged[i].rel == NULL || strcmp(g_merged[i].rel, rel) != 0) {
             continue;
@@ -1176,6 +1216,7 @@ void bw_vfs_flush_path(const char *rel)
             g_merged[i].stale = 1;
         }
     }
+    bw_shared_unlock();
 }
 
 static int new_entry(u32 *index);
@@ -1191,7 +1232,13 @@ u32 bw_vfs_adopt(const char *rel, u8 *img, u32 size, u32 refs)
     u32 i;
     char *key = dup_str(rel);
 
-    if (key == NULL || refs == 0 || new_entry(&i) != 0) {
+    if (key == NULL || refs == 0) {
+        free(key);
+        return 0;
+    }
+    bw_shared_lock();
+    if (new_entry(&i) != 0) {
+        bw_shared_unlock();
         free(key);
         return 0;
     }
@@ -1200,6 +1247,7 @@ u32 bw_vfs_adopt(const char *rel, u8 *img, u32 size, u32 refs)
     g_merged[i].size = size;
     g_merged[i].refs = refs;
     g_merged[i].stale = 1;
+    bw_shared_unlock();
     return i + 1;
 }
 
@@ -1238,7 +1286,12 @@ int bw_vfs_acquire(const char *rel, const u8 **data, u32 *size, u32 *handle)
     *data = NULL;
     *size = 0;
     *handle = 0;
-    if (rel == NULL || (bw_mod_count() == 0 && !port_layer_has(rel))) {
+    if (rel == NULL) {
+        return 0;
+    }
+    bw_shared_lock();
+    if (bw_mod_count() == 0 && !port_layer_has_locked(rel)) {
+        bw_shared_unlock();
         return 0;
     }
     for (i = 0; i < g_merged_cap; i++) {
@@ -1249,20 +1302,44 @@ int bw_vfs_acquire(const char *rel, const u8 **data, u32 *size, u32 *handle)
             *data = m->data;
             *size = m->size;
             *handle = i + 1;
+            bw_shared_unlock();
             return 1;
         }
     }
+    bw_shared_unlock();
+
     rc = bw_vfs_build_merged(rel, &img, &img_size);
     if (rc <= 0) {
         return rc;
     }
     key = (char *)malloc(strlen(rel) + 1);
-    if (key == NULL || new_entry(&i) != 0) {
-        free(key);
+    if (key == NULL) {
         free(img);
         return -1;
     }
     strcpy(key, rel);
+
+    bw_shared_lock();
+    for (i = 0; i < g_merged_cap; i++) {
+        Merged *m = &g_merged[i];
+
+        if (m->rel != NULL && !m->stale && strcmp(m->rel, rel) == 0) {
+            m->refs++;
+            *data = m->data;
+            *size = m->size;
+            *handle = i + 1;
+            bw_shared_unlock();
+            free(key);
+            free(img);
+            return 1;
+        }
+    }
+    if (new_entry(&i) != 0) {
+        bw_shared_unlock();
+        free(key);
+        free(img);
+        return -1;
+    }
     g_merged[i].rel = key;
     g_merged[i].data = img;
     g_merged[i].size = img_size;
@@ -1271,22 +1348,28 @@ int bw_vfs_acquire(const char *rel, const u8 **data, u32 *size, u32 *handle)
     *data = img;
     *size = img_size;
     *handle = i + 1;
+    bw_shared_unlock();
     return 1;
 }
 
 void bw_vfs_release(u32 handle)
 {
-    Merged *m;
+    char *rel = NULL;
+    u8 *data = NULL;
 
-    if (handle == 0 || handle > g_merged_cap) {
-        return;
+    bw_shared_lock();
+    if (handle != 0 && handle <= g_merged_cap) {
+        Merged *m = &g_merged[handle - 1];
+        if (m->rel != NULL && m->refs != 0) {
+            m->refs--;
+            if (m->refs == 0 && m->stale) {
+                rel = m->rel;
+                data = m->data;
+                memset(m, 0, sizeof(*m));
+            }
+        }
     }
-    m = &g_merged[handle - 1];
-    if (m->rel == NULL || m->refs == 0) {
-        return;
-    }
-    m->refs--;
-    if (m->refs == 0 && m->stale) {
-        free_entry(m);
-    }
+    bw_shared_unlock();
+    free(rel);
+    free(data);
 }

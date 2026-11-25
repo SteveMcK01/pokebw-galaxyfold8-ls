@@ -536,33 +536,67 @@ u32 w2c_wasi__snapshot__preview1_fd_fdstat_set_flags(struct w2c_wasi__snapshot__
 
 u32 w2c_wasi__snapshot__preview1_fd_renumber(struct w2c_wasi__snapshot__preview1 *w, u32 from, u32 to)
 {
+    Fd evicted;
+    int close_evicted = 0;
+
     (void)w;
-    if (from >= FDS_MAX || to >= FDS_MAX || !g_fd[from].used || to < 4) {
+    if (from >= FDS_MAX || to >= FDS_MAX || to < 4) {
+        return W_EBADF;
+    }
+    while (atomic_flag_test_and_set(&g_fd_lock)) {
+    }
+    if (!g_fd[from].used) {
+        atomic_flag_clear(&g_fd_lock);
         return W_EBADF;
     }
     if (g_fd[to].used) {
-        w2c_wasi__snapshot__preview1_fd_close(w, to);
+        evicted = g_fd[to];
+        close_evicted = 1;
     }
     g_fd[to] = g_fd[from];
     memset(&g_fd[from], 0, sizeof(g_fd[from]));
+    atomic_flag_clear(&g_fd_lock);
+    if (close_evicted) {
+        if (!evicted.is_dir) {
+#if defined(_WIN32)
+            _close(evicted.native);
+#else
+            close(evicted.native);
+#endif
+        }
+        free(evicted.path);
+    }
     return 0;
 }
 
 u32 w2c_wasi__snapshot__preview1_fd_close(struct w2c_wasi__snapshot__preview1 *w, u32 fd)
 {
+    Fd old;
+
     (void)w;
-    if (fd < 4 || fd >= FDS_MAX || !g_fd[fd].used) {
-        return fd < 4 ? 0 : W_EBADF;
+    if (fd < 4) {
+        return 0;
     }
-    if (!g_fd[fd].is_dir) {
+    if (fd >= FDS_MAX) {
+        return W_EBADF;
+    }
+    while (atomic_flag_test_and_set(&g_fd_lock)) {
+    }
+    if (!g_fd[fd].used) {
+        atomic_flag_clear(&g_fd_lock);
+        return W_EBADF;
+    }
+    old = g_fd[fd];
+    memset(&g_fd[fd], 0, sizeof(g_fd[fd]));
+    atomic_flag_clear(&g_fd_lock);
+    if (!old.is_dir) {
 #if defined(_WIN32)
-        _close(g_fd[fd].native);
+        _close(old.native);
 #else
-        close(g_fd[fd].native);
+        close(old.native);
 #endif
     }
-    free(g_fd[fd].path);
-    memset(&g_fd[fd], 0, sizeof(g_fd[fd]));
+    free(old.path);
     return 0;
 }
 

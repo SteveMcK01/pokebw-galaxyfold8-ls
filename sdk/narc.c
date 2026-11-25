@@ -38,6 +38,7 @@
 
 #include "port.h"
 #include "langmap.h"
+#include "plat_thread.h"
 
 /* The SDK file calls this file uses (sdk/fs.c), declared at file scope:
  * MSVC flags a block-scope extern function declaration (C4210). */
@@ -127,36 +128,39 @@ static void load_arm9(void)
 
 void bw_arm9_set_image(const void *image, u32 size)
 {
+    u8 *copy = NULL;
+
+    if (image != NULL && size != 0) {
+        copy = (u8 *)malloc(size);
+        if (copy != NULL) {
+            memcpy(copy, image, size);
+        }
+    }
+    bw_shared_lock();
     free(g_arm9);
-    g_arm9 = NULL;
-    g_arm9_size = 0;
+    g_arm9 = copy;
+    g_arm9_size = (copy != NULL) ? size : 0u;
     g_arm9_tried = 1;
-    if (image == NULL || size == 0) {
-        return;
-    }
-    g_arm9 = (u8 *)malloc(size);
-    if (g_arm9 == NULL) {
-        return;
-    }
-    memcpy(g_arm9, image, size);
-    g_arm9_size = size;
+    bw_shared_unlock();
 }
 
 const void *bw_arm9_rodata(u32 address, u32 size)
 {
+    const void *ret = NULL;
     u32 off;
 
+    bw_shared_lock();
     if (!g_arm9_tried) {
         load_arm9();
     }
-    if (g_arm9 == NULL || address < BW_ARM9_LOAD_ADDRESS) {
-        return NULL;
+    if (g_arm9 != NULL && address >= BW_ARM9_LOAD_ADDRESS) {
+        off = address - BW_ARM9_LOAD_ADDRESS;
+        if (off <= g_arm9_size && size <= g_arm9_size - off) {
+            ret = g_arm9 + off;
+        }
     }
-    off = address - BW_ARM9_LOAD_ADDRESS;
-    if (off > g_arm9_size || size > g_arm9_size - off) {
-        return NULL;
-    }
-    return g_arm9 + off;
+    bw_shared_unlock();
+    return ret;
 }
 
 /* ------------------------------------------------------------------ */

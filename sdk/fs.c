@@ -64,6 +64,7 @@
 #include "port.h"
 #include "dsmem.h"
 #include "fs.h"
+#include "plat_thread.h"
 #include "vfs.h"
 
 #define BW_FS_MAGIC     0x42574653u  /* 'BWFS' */
@@ -549,29 +550,53 @@ int bw_fs_id_of_path(const char *path, u32 *file_id)
 /* The file object                                                     */
 /* ------------------------------------------------------------------ */
 
-static BwFsRecord *record_of(void *file)
+static BwFsRecord *slot_snapshot(void *file, FILE **out_fp, const u8 **out_mem)
 {
     BwFsRecord *r = (BwFsRecord *)file;
+    int valid = 0;
 
-    if (r == NULL || r->magic != BW_FS_MAGIC || r->slot == 0 ||
-        r->slot > g_nslots || !g_slots[r->slot - 1].used) {
+    bw_shared_lock();
+    if (r != NULL && r->magic == BW_FS_MAGIC && r->slot != 0 &&
+        r->slot <= g_nslots && g_slots[r->slot - 1].used) {
+        if (out_fp != NULL) {
+            *out_fp = g_slots[r->slot - 1].fp;
+        }
+        if (out_mem != NULL) {
+            *out_mem = g_slots[r->slot - 1].mem;
+        }
+        valid = 1;
+    }
+    bw_shared_unlock();
+    if (!valid) {
         bw_panic("FS", 0, "operation on a file that is not open");
     }
     return r;
 }
 
-static int claim_slot(BwFsRecord *r, FILE *fp, const u8 *mem, u32 base, u32 size,
-                      u32 file_id)
+static BwFsRecord *record_of(void *file)
+{
+    return slot_snapshot(file, NULL, NULL);
+}
+
+static int claim_slot(BwFsRecord *r, FILE *fp, const u8 *mem, u32 vfs,
+                      const char *rel, u32 base, u32 size, u32 file_id)
 {
     u32 i;
+    char *rel_copy = NULL;
+    int rc = -1;
 
+    if (rel != NULL) {
+        rel_copy = (char *)malloc(strlen(rel) + 1);
+    }
+
+    bw_shared_lock();
     for (i = 0;; i++) {
         if (i == g_nslots) {
             u32 n = g_nslots != 0 ? g_nslots * 2u : 32u;
             BwFsSlot *grown = (BwFsSlot *)realloc(g_slots, (size_t)n * sizeof(*grown));
 
             if (grown == NULL) {
-                return -1;
+                break;
             }
             memset(grown + g_nslots, 0, (size_t)(n - g_nslots) * sizeof(*grown));
             g_slots = grown;
@@ -580,10 +605,11 @@ static int claim_slot(BwFsRecord *r, FILE *fp, const u8 *mem, u32 base, u32 size
         if (!g_slots[i].used) {
             g_slots[i].fp = fp;
             g_slots[i].mem = mem;
-            g_slots[i].vfs = 0;
+            g_slots[i].vfs = vfs;
             g_slots[i].used = 1;
-            g_slots[i].rel = NULL;
-            g_slots[i].rec = NULL;
+            g_slots[i].rel = rel_copy;
+            g_slots[i].rec = rel_copy != NULL ? r : NULL;
+            rel_copy = NULL;
             memset(r, 0, sizeof(*r));
             r->magic = BW_FS_MAGIC;
             r->slot = i + 1;
@@ -591,16 +617,19 @@ static int claim_slot(BwFsRecord *r, FILE *fp, const u8 *mem, u32 base, u32 size
             r->size = size;
             r->base = base;
             r->file_id = file_id;
-            return 0;
+            rc = 0;
+            break;
         }
     }
-    return -1;
+    bw_shared_unlock();
+    free(rel_copy);
+    return rc;
 }
 
 /* Open host file `host_path` as the window [base, base + size); a size of
  * BW_FS_NO_ID means "to the end of the file". */
 static int open_window(void *file, const char *host_path, u32 base, u32 size,
-                       u32 file_id)
+                       u32 file_id, const char *archive_rel)
 {
     BwFsRecord *r = (BwFsRecord *)file;
     FILE *fp;
@@ -625,7 +654,7 @@ static int open_window(void *file, const char *host_path, u32 base, u32 size,
         fclose(fp);
         return -1;
     }
-    if (claim_slot(r, fp, NULL, base, size, file_id) != 0) {
+    if (claim_slot(r, fp, NULL, 0, archive_rel, base, size, file_id) != 0) {
         fclose(fp);
         return -1;
     }
@@ -634,7 +663,7 @@ static int open_window(void *file, const char *host_path, u32 base, u32 size,
 
 int bw_fs_open(void *file, const char *host_path)
 {
-    return open_window(file, host_path, 0, BW_FS_NO_ID, BW_FS_NO_ID);
+    return open_window(file, host_path, 0, BW_FS_NO_ID, BW_FS_NO_ID, NULL);
 }
 
 /*
@@ -643,20 +672,6 @@ int bw_fs_open(void *file, const char *host_path)
  * member the window is over the merged image; otherwise over the file
  * bw_data_path names (mod overlay first).
  */
-/* A whole archive by path: keep the path and the record for a swap. */
-static void remember_archive(BwFsRecord *r, const char *rel)
-{
-    BwFsSlot *s = &g_slots[r->slot - 1];
-    char *copy = (char *)malloc(strlen(rel) + 1);
-
-    if (copy == NULL) {
-        return;     /* the file still reads; it only misses a later swap */
-    }
-    strcpy(copy, rel);
-    s->rel = copy;
-    s->rec = r;
-}
-
 static int open_rel_window(void *file, const char *rel, u32 base, u32 size,
                            u32 file_id)
 {
@@ -678,25 +693,18 @@ static int open_rel_window(void *file, const char *rel, u32 base, u32 size,
             size = base <= total ? total - base : 0;
         }
         if (base > total || size > total - base ||
-            claim_slot(r, NULL, data, base, size, file_id) != 0) {
+            claim_slot(r, NULL, data, handle, whole ? rel : NULL, base, size, file_id) != 0) {
             bw_vfs_release(handle);
             memset(r, 0, sizeof(*r));
             return -1;
-        }
-        g_slots[r->slot - 1].vfs = handle;
-        if (whole) {
-            remember_archive(r, rel);
         }
         return 0;
     }
     if (bw_data_path(host, sizeof(host), rel) != 0) {
         return -1;
     }
-    if (open_window(file, host, base, size, file_id) != 0) {
+    if (open_window(file, host, base, size, file_id, whole ? rel : NULL) != 0) {
         return -1;
-    }
-    if (whole) {
-        remember_archive(r, rel);
     }
     return 0;
 }
@@ -713,6 +721,7 @@ int bw_fs_archive_open(const char *rel, u32 *count)
     if (count != NULL) {
         *count = 0;
     }
+    bw_shared_lock();
     for (i = 0; i < g_nslots; i++) {
         BwFsSlot *s = &g_slots[i];
 
@@ -732,6 +741,7 @@ int bw_fs_archive_open(const char *rel, u32 *count)
         }
         n++;
     }
+    bw_shared_unlock();
     return n;
 }
 
@@ -877,7 +887,7 @@ int bw_fs_open_memory(void *file, const void *data, u32 size)
     if (data == NULL && size != 0) {
         return -1;
     }
-    return claim_slot(r, NULL, (const u8 *)data, 0, size, BW_FS_NO_ID);
+    return claim_slot(r, NULL, (const u8 *)data, 0, NULL, 0, size, BW_FS_NO_ID);
 }
 
 u32 bw_fs_size(void *file)
@@ -1202,8 +1212,9 @@ BOOL FS_SeekFile(void *file, s32 offset, u32 origin)
 /* FS_ReadFile: bytes read (short at the end of the window), or -1. */
 s32 FS_ReadFile(void *file, void *dst, s32 len)
 {
-    BwFsRecord *r = record_of(file);
-    const BwFsSlot *s = &g_slots[r->slot - 1];
+    FILE *fp = NULL;
+    const u8 *mem = NULL;
+    BwFsRecord *r = slot_snapshot(file, &fp, &mem);
     size_t got;
 
     if (len < 0) {
@@ -1215,14 +1226,14 @@ s32 FS_ReadFile(void *file, void *dst, s32 len)
     if (len == 0) {
         return 0;
     }
-    if (s->fp == NULL) {
-        memcpy(dst, s->mem + r->base + r->pos, (size_t)len);
+    if (fp == NULL) {
+        memcpy(dst, mem + r->base + r->pos, (size_t)len);
         got = (size_t)len;
     } else {
-        if (fseek(s->fp, (long)(r->base + r->pos), SEEK_SET) != 0) {
+        if (fseek(fp, (long)(r->base + r->pos), SEEK_SET) != 0) {
             return -1;
         }
-        got = fread(dst, 1, (size_t)len, s->fp);
+        got = fread(dst, 1, (size_t)len, fp);
     }
     r->pos += (u32)got;
     return (s32)got;
@@ -1250,27 +1261,37 @@ BOOL FS_CloseFile(void *file)
 {
     BwFsRecord *r = (BwFsRecord *)file;
     BwFsSlot *s;
+    FILE *fp = NULL;
+    u32 vfs = 0;
+    char *rel = NULL;
 
+    bw_shared_lock();
     if (r == NULL || r->magic != BW_FS_MAGIC || r->slot == 0 ||
-        r->slot > g_nslots) {
+        r->slot > g_nslots || !g_slots[r->slot - 1].used) {
+        bw_shared_unlock();
         return FALSE;
     }
     s = &g_slots[r->slot - 1];
-    if (s->fp != NULL) {
-        fclose(s->fp);
-    }
-    if (s->vfs != 0) {
-        bw_vfs_release(s->vfs);
-    }
+    fp = s->fp;
+    vfs = s->vfs;
+    rel = s->rel;
     s->vfs = 0;
     s->fp = NULL;
     s->mem = NULL;
-    free(s->rel);
     s->rel = NULL;
     s->rec = NULL;
     s->used = 0;
     r->magic = 0;
     r->slot = 0;
+    bw_shared_unlock();
+
+    if (fp != NULL) {
+        fclose(fp);
+    }
+    if (vfs != 0) {
+        bw_vfs_release(vfs);
+    }
+    free(rel);
     return TRUE;
 }
 

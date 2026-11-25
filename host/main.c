@@ -41,6 +41,7 @@
 #include <unistd.h>
 #endif
 
+#include "crash_handler.h"
 #include "host.h"
 #include "picker.h"
 #include "plat_save.h"
@@ -311,19 +312,9 @@ void w2c_eidos_gear_push(struct w2c_eidos *e, u32 data, u32 size)
 void host_trap(wasm_rt_trap_t code)
 {
     const char *msg = wasm_rt_strerror(code);
-    const char *save_dir = host_settings_effective_save_dir();
 
-    fprintf(stderr, "eidos: the game stopped (wasm trap: %s)\n", msg);
-    if (save_dir != NULL && save_dir[0] != '\0') {
-        char path[1152];
-        FILE *cf;
-        snprintf(path, sizeof path, "%s/pokebw_last_crash.txt", save_dir);
-        cf = fopen(path, "w");
-        if (cf != NULL) {
-            fprintf(cf, "wasm trap: %s (code %d)\n", msg ? msg : "unknown", (int)code);
-            fclose(cf);
-        }
-    }
+    fprintf(stderr, "eidos: the game stopped (wasm trap: %s)\n", msg ? msg : "unknown");
+    host_crash_report_trap((int)code, msg);
 #if defined(_WIN32)
     {
         void *frames[48];
@@ -335,12 +326,6 @@ void host_trap(wasm_rt_trap_t code)
             fprintf(stderr, "  frame %2u  exe+0x%llx\n", i,
                     (unsigned long long)((char *)frames[i] - (char *)self));
         }
-    }
-#elif defined(__linux__) && !defined(__ANDROID__)
-    {
-        void *frames[64];
-        int n = backtrace(frames, 64);
-        backtrace_symbols_fd(frames, n, 2);
     }
 #endif
     fflush(stderr);
@@ -429,7 +414,7 @@ static DWORD WINAPI stall_watch(LPVOID arg)
 static char **mobile_args(int *argc)
 {
     static char *argv[64];
-    static char data[1024], prof[1024], file[1024], line[1024];
+    static char data[1024], prof[1024], file[1024], stderr_path[1024], line[1024];
     const char *pref = SDL_GetPrefPath("eidos", "eidos");
     int n = 0;
     FILE *f;
@@ -437,13 +422,13 @@ static char **mobile_args(int *argc)
     if (pref == NULL) {
         pref = "./";
     }
-    snprintf(file, sizeof file, "%sstderr.txt", pref);
+    snprintf(stderr_path, sizeof stderr_path, "%sstderr.txt", pref);
     if (getenv("EIDOS_MOBILE_CONSOLE") == NULL) {
         /* The output descriptors themselves, which the game's writes go to:
          * an app started by a tool (xcrun devicectl) has them on a pipe no
          * one reads, and a full pipe stopped the game in its next message.
          * The file, or nowhere. */
-        int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        int fd = open(stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
         if (fd < 0) {
             fd = open("/dev/null", O_WRONLY);
@@ -463,6 +448,17 @@ static char **mobile_args(int *argc)
     snprintf(prof, sizeof prof, "%sprofile", pref);
     SDL_CreateDirectory(prof);
     host_settings_init(prof);
+#if defined(__ANDROID__)
+    {
+        const char *ext_dir = SDL_GetAndroidExternalStoragePath();
+        if (ext_dir != NULL && ext_dir[0] != '\0') {
+            SDL_CreateDirectory(ext_dir);
+        }
+        host_crash_init(pref, ext_dir, host_settings_effective_save_dir(), stderr_path);
+    }
+#else
+    host_crash_init(pref, NULL, host_settings_effective_save_dir(), stderr_path);
+#endif
     argv[n++] = "eidos";
     argv[n++] = "--no-window";
     argv[n++] = "--data-root";
@@ -573,6 +569,7 @@ static void *game_thread(void *p)
      * releases the pages of the thread's stack below where it runs, which
      * would empty the fibers' first frames. */
     SDL_GetAndroidJNIEnv();
+    host_crash_install_thread_altstack();
     g_run_rc = host_run(g_run_argc, g_run_argv);
     return NULL;
 }
@@ -658,6 +655,8 @@ static int host_run(int argc, char **argv)
     }
 #endif
     /* a trap ends the program in host_trap (host/CMakeLists.txt) */
+    host_crash_set_wasm_mem(g_game.w2c_memory.data,
+                            (size_t)g_game.w2c_memory.pages * 65536u);
     w2c_game_0x5Fstart(&g_game);
     wasm2c_game_free(&g_game);
     wasm_rt_free();

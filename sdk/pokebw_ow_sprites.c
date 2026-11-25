@@ -386,6 +386,74 @@ static void build_synthesized_btx0(
     }
 }
 
+static uint8_t default_tex_size_for_mdl(uint8_t mdl_size)
+{
+    if (mdl_size == 1u) {
+        return 12u; /* 16x128: s=1 (16), t=4 (128) -> s*8+t = 12 */
+    }
+    if (mdl_size == 2u) {
+        return 30u; /* 64x512: s=3 (64), t=6 (512) -> s*8+t = 30 */
+    }
+    return 21u; /* 32x256: s=2 (32), t=5 (256) -> s*8+t = 21 */
+}
+
+static uint32_t cell_px_for_mdl(uint8_t mdl_size)
+{
+    if (mdl_size == 1u) {
+        return 16u;
+    }
+    if (mdl_size == 2u) {
+        return 64u;
+    }
+    return 32u;
+}
+
+static uint8_t derive_btx0_tex_size(
+    const uint8_t *btx,
+    uint32_t btx_size,
+    uint8_t mdl_size,
+    uint8_t fallback_tex_size)
+{
+    uint32_t cell_px = cell_px_for_mdl(mdl_size);
+    uint8_t safe_def = default_tex_size_for_mdl(mdl_size);
+    uint8_t safe_fb = safe_def;
+
+    if (fallback_tex_size < 64u) {
+        uint32_t fb_s = (uint32_t)fallback_tex_size >> 3;
+        uint32_t fb_t = (uint32_t)fallback_tex_size & 7u;
+        if ((8u << fb_s) >= cell_px && (8u << fb_t) >= cell_px) {
+            safe_fb = fallback_tex_size;
+        }
+    }
+
+    if (btx != NULL && btx_size >= 0x54u &&
+        btx[0] == 'B' && btx[1] == 'T' && btx[2] == 'X' && btx[3] == '0') {
+        uint32_t sec_off = rd32_le(btx + 0x10u);
+        if (sec_off >= 0x10u && sec_off + 0x3Cu <= btx_size) {
+            const uint8_t *tex0 = btx + sec_off;
+            uint32_t tex0_avail = btx_size - sec_off;
+            if (tex0[0] == 'T' && tex0[1] == 'E' && tex0[2] == 'X' && tex0[3] == '0') {
+                uint32_t td_off = rd16_le(tex0 + 0x0Eu);
+                if (td_off >= 0x3Cu && td_off + 24u <= tex0_avail) {
+                    const uint8_t *td = tex0 + td_off;
+                    uint32_t td_avail = tex0_avail - td_off;
+                    uint32_t ofs_entries = rd16_le(td + 6u);
+                    if (ofs_entries >= 8u && ofs_entries + 8u <= td_avail) {
+                        uint16_t params = rd16_le(td + ofs_entries + 6u);
+                        uint32_t s_code = (params >> 4) & 7u;
+                        uint32_t t_code = (params >> 7) & 7u;
+                        if ((8u << s_code) >= cell_px && (8u << t_code) >= cell_px) {
+                            return (uint8_t)(s_code * 8u + t_code);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return safe_fb;
+}
+
 static void register_entry(
     const struct PokebwMmdlObjCodeParam *tmpl,
     uint32_t member_id,
@@ -394,6 +462,7 @@ static void register_entry(
     int shiny,
     int is_custom,
     uint8_t mdl_size,
+    uint8_t tex_size,
     uint8_t anim_id,
     int8_t off_x,
     int8_t off_y,
@@ -405,6 +474,9 @@ static void register_entry(
 
     if (g_entry_count >= OW_MAX_SLOTS) {
         return;
+    }
+    if (mdl_size > 2u) {
+        mdl_size = 0u;
     }
     slot = g_entry_count++;
     e = &g_entries[slot];
@@ -421,7 +493,7 @@ static void register_entry(
     e->param.drawType = 1u; /* billboard */
     e->param.shadowSize = shadow_size;
     e->param.mdlSize = mdl_size;
-    e->param.texSize = mdl_size;
+    e->param.texSize = tex_size;
     e->param.animId = anim_id;
     e->param.sizeWidth = 1u;
     e->param.sizeDepth = 1u;
@@ -429,7 +501,7 @@ static void register_entry(
     e->param.offsetY = off_y;
     e->param.offsetZ = off_z;
     memset(e->param.resource, 0, sizeof(e->param.resource));
-    wr16_le(e->param.resource, (uint16_t)member_id);
+    wr32_le(e->param.resource, member_id);
 
     if (form == 0u && species <= POKEBW_OW_SPECIES_MAX) {
         g_base_objcode[species][e->shiny] = e->obj_code;
@@ -446,6 +518,7 @@ int pokebw_ow_sprites_register(void)
 {
     BwArcFile arc_tbl, arc_spr, arc_ico, arc_per;
     struct PokebwMmdlObjCodeParam tmpl;
+    uint8_t tmpl_tex_by_size[3];
     uint8_t *tbl_buf = NULL;
     uint8_t *pal_nclr = NULL;
     uint8_t *bwsp = NULL;
@@ -462,6 +535,11 @@ int pokebw_ow_sprites_register(void)
 
     uint32_t rec_count, r;
     int found_anim14 = 0;
+    int found_drawproc1 = 0;
+
+    tmpl_tex_by_size[0] = default_tex_size_for_mdl(0u);
+    tmpl_tex_by_size[1] = default_tex_size_for_mdl(1u);
+    tmpl_tex_by_size[2] = default_tex_size_for_mdl(2u);
 
     if (bw_arc_open(&arc_tbl, "a/0/4/8") != 0) {
         return -1;
@@ -481,9 +559,21 @@ int pokebw_ow_sprites_register(void)
         struct PokebwMmdlObjCodeParam cand;
         memcpy(&cand, tbl_buf + 4u + r * PARAM_RECORD_SIZE, PARAM_RECORD_SIZE);
         if (cand.drawType == 1u && cand.animId == ANIM_ID_8FRAME) {
-            tmpl = cand;
-            found_anim14 = 1;
-            break;
+            if (!found_anim14 || (!found_drawproc1 && cand.drawProcNo == 1u)) {
+                tmpl = cand;
+                found_anim14 = 1;
+                if (cand.drawProcNo == 1u) {
+                    found_drawproc1 = 1;
+                }
+            }
+            if (cand.mdlSize <= 2u && cand.texSize < 64u) {
+                uint32_t cell_px = cell_px_for_mdl(cand.mdlSize);
+                uint32_t s_code = (uint32_t)cand.texSize >> 3;
+                uint32_t t_code = (uint32_t)cand.texSize & 7u;
+                if ((8u << s_code) >= cell_px && (8u << t_code) >= cell_px) {
+                    tmpl_tex_by_size[cand.mdlSize] = cand.texSize;
+                }
+            }
         }
     }
     free(tbl_buf);
@@ -507,7 +597,7 @@ int pokebw_ow_sprites_register(void)
                 uint16_t species = rd16_le(ent + 0u);
                 uint8_t form = ent[2];
                 uint8_t shiny = ent[3] ? 1u : 0u;
-                uint8_t mdl_size = ent[4];
+                uint8_t mdl_size = (ent[4] <= 2u) ? ent[4] : 0u;
                 uint8_t anim_id = ent[5];
                 int8_t off_x = (int8_t)ent[6];
                 int8_t off_y = (int8_t)ent[7];
@@ -515,18 +605,21 @@ int pokebw_ow_sprites_register(void)
                 uint8_t shadow = ent[9];
                 uint32_t doff = rd32_le(ent + 12u);
                 uint32_t dsize = rd32_le(ent + 16u);
+                uint8_t tex_size;
 
                 if (species == 0u || species > POKEBW_OW_SPECIES_MAX ||
                     dsize == 0u || (uint64_t)doff + dsize > bwsp_size ||
-                    next_member >= BW_NARC_MAX_MEMBERS) {
+                    next_member >= BW_NARC_MAX_MEMBERS || next_member >= 65535u) {
                     continue;
                 }
                 if (find_entry_slot(species, form, shiny) >= 0) {
                     continue;
                 }
+                tex_size = derive_btx0_tex_size(
+                    bwsp + doff, dsize, mdl_size, tmpl_tex_by_size[mdl_size]);
                 if (bw_vfs_mem_set("", "a/0/4/9", next_member, bwsp + doff, dsize) == 0) {
                     register_entry(&tmpl, next_member, species, form, shiny, 1,
-                                   mdl_size, anim_id, off_x, off_y, off_z, shadow);
+                                   mdl_size, tex_size, anim_id, off_x, off_y, off_z, shadow);
                     next_member++;
                 }
             }
@@ -562,11 +655,14 @@ int pokebw_ow_sprites_register(void)
                     int sh;
                     for (sh = 0; sh < 2; sh++) {
                         if (find_entry_slot((uint16_t)sp, 0u, sh) < 0 &&
-                            next_member < BW_NARC_MAX_MEMBERS) {
+                            next_member < BW_NARC_MAX_MEMBERS && next_member < 65535u) {
+                            uint8_t tex_size;
                             build_synthesized_btx0(chr, pal_nclr, pal_size, bank, sh, btx);
+                            tex_size = derive_btx0_tex_size(
+                                btx, BTX_TOTAL_SIZE, 0u, tmpl_tex_by_size[0]);
                             if (bw_vfs_mem_set("", "a/0/4/9", next_member, btx, BTX_TOTAL_SIZE) == 0) {
                                 register_entry(&tmpl, next_member, (uint16_t)sp, 0u, sh, 0,
-                                               0u, ANIM_ID_8FRAME, 0, 0, 0, 1u);
+                                               0u, tex_size, ANIM_ID_8FRAME, 0, 0, 0, 1u);
                                 next_member++;
                             }
                         }
@@ -607,11 +703,14 @@ int pokebw_ow_sprites_register(void)
                             if (fchr != NULL && fsize >= 0x30u + 1024u) {
                                 for (sh = 0; sh < 2; sh++) {
                                     if (find_entry_slot((uint16_t)sp, (uint8_t)fm, sh) < 0 &&
-                                        next_member < BW_NARC_MAX_MEMBERS) {
+                                        next_member < BW_NARC_MAX_MEMBERS && next_member < 65535u) {
+                                        uint8_t tex_size;
                                         build_synthesized_btx0(fchr, pal_nclr, pal_size, fm_bank, sh, btx);
+                                        tex_size = derive_btx0_tex_size(
+                                            btx, BTX_TOTAL_SIZE, 0u, tmpl_tex_by_size[0]);
                                         if (bw_vfs_mem_set("", "a/0/4/9", next_member, btx, BTX_TOTAL_SIZE) == 0) {
                                             register_entry(&tmpl, next_member, (uint16_t)sp, (uint8_t)fm, sh, 0,
-                                                           0u, ANIM_ID_8FRAME, 0, 0, 0, 1u);
+                                                           0u, tex_size, ANIM_ID_8FRAME, 0, 0, 0, 1u);
                                             next_member++;
                                         }
                                     }
@@ -637,10 +736,12 @@ int pokebw_ow_sprites_register(void)
     bw_vfs_flush_path("a/0/4/9");
     g_registered = 1;
     fprintf(stderr,
-            "eidos: ow_sprites: %u registered (%u custom .bwsp, %u alt forms, %u ROM synth, tmpl drawProc=%u anim14=%d)\n",
+            "eidos: ow_sprites: %u registered (%u custom .bwsp, %u alt forms, %u ROM synth, tmpl drawProc=%u anim14=%d tex=[%u,%u,%u])\n",
             (unsigned)g_entry_count, (unsigned)g_custom_count, (unsigned)g_form_count,
             (unsigned)(g_entry_count - g_custom_count),
-            (unsigned)tmpl.drawProcNo, found_anim14);
+            (unsigned)tmpl.drawProcNo, found_anim14,
+            (unsigned)tmpl_tex_by_size[0], (unsigned)tmpl_tex_by_size[1],
+            (unsigned)tmpl_tex_by_size[2]);
     return 0;
 }
 

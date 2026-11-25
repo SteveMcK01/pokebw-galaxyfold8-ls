@@ -30,6 +30,7 @@ option(EIDOS_HOST_FPCAST
 set(SDL3_PREFIX "" CACHE PATH "SDL3: a prefix with include/SDL3 and the library")
 set(EIDOS_HOST_SDL_SOURCE "" CACHE PATH "SDL3's source tree, built with the program (Android, iOS)")
 set(EIDOS_HOST_IMGUI_ROOT "" CACHE PATH "Dear ImGui source tree (Android overlay)")
+set(POKEBW_BUILD_VERSION "dev" CACHE STRING "Build version or git SHA for crash reports")
 set(EIDOS_HOST_PARTS 32 CACHE STRING "how many C files wasm2c writes")
 option(EIDOS_HOST_WINDOWED "Windows: a windowed program with no console (a release)" OFF)
 # Consoles (the Switch, the Vita): no room for wasm2c's 8 GiB of guard pages
@@ -127,6 +128,7 @@ set(_host_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/wasi.c
     ${CMAKE_CURRENT_SOURCE_DIR}/sdl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/sdl_gpu.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/crash_handler.c
     ${CMAKE_CURRENT_SOURCE_DIR}/pokebw_settings.c
     ${_root}/install/picker.c
     ${_root}/install/location.c
@@ -221,6 +223,7 @@ if(NOT EIDOS_HOST_FPCAST)
     target_compile_definitions(eidos PRIVATE HOST_INDIRECT_LOG=1)
 endif()
 target_compile_definitions(eidos PRIVATE
+    POKEBW_BUILD_VERSION="${POKEBW_BUILD_VERSION}"
     WASM_RT_NONCONFORMING_UNCHECKED_STACK_EXHAUSTION=1
     WASM_RT_SKIP_SIGNAL_RECOVERY=1
     WASM_RT_TRAP_HANDLER=host_trap)

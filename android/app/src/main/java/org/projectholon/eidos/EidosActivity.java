@@ -21,7 +21,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.TimeZone;
 
 /*
  * eidos on Android: SDL's activity, with one change to what the game is
@@ -39,6 +45,7 @@ public class EidosActivity extends SDLActivity {
 
     private static final int REQ_MANAGE_STORAGE = 9101;
     private static final int REQ_PICK_SAVE_DIR = 9102;
+    private static volatile boolean sCrashHandlerInstalled = false;
 
     private native void nativeOnSaveFolderPicked(String path);
 
@@ -63,8 +70,54 @@ public class EidosActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        installCrashHandler();
         super.onCreate(savedInstanceState);
         extractBundledSpritePack();
+    }
+
+    private void installCrashHandler() {
+        File extDir = getExternalFilesDir(null);
+        if (extDir != null && !extDir.exists()) {
+            extDir.mkdirs();
+        }
+        if (sCrashHandlerInstalled) {
+            return;
+        }
+        sCrashHandlerInstalled = true;
+        final File intLog = new File(getFilesDir(), "pokebw_crash.log");
+        final File extLog = extDir != null ? new File(extDir, "pokebw_crash.log") : null;
+        final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread thread, Throwable throwable) {
+                try {
+                    SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US);
+                    fmt.setTimeZone(TimeZone.getTimeZone("UTC"));
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw);
+                    pw.println("=== PokeBW Fold Java Crash Report ===");
+                    pw.println("Time: " + fmt.format(new Date()));
+                    pw.println("Thread: " + (thread != null ? thread.getName() : "unknown"));
+                    if (throwable != null) {
+                        throwable.printStackTrace(pw);
+                    }
+                    pw.flush();
+                    byte[] bytes = sw.toString().getBytes(StandardCharsets.UTF_8);
+                    File[] targets = extLog != null ? new File[] { extLog, intLog } : new File[] { intLog };
+                    for (File dst : targets) {
+                        try (FileOutputStream fos = new FileOutputStream(dst, false)) {
+                            fos.write(bytes);
+                            fos.getFD().sync();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+                if (prev != null) {
+                    prev.uncaughtException(thread, throwable);
+                }
+            }
+        });
     }
 
     private void extractBundledSpritePack() {

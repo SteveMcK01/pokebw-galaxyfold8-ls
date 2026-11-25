@@ -14,6 +14,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "pokebw_follower.h"
@@ -497,8 +498,17 @@ static void follower_spawn(
         return;
     }
 
-    if (g_trail_len == 0u || vec_dist3d(ppos, (struct PokebwVecFx32 *)trail_at(g_trail_len - 1u)) > WARP_DIST_THRESHOLD) {
+    if (g_trail_len == 0u) {
         trail_seed_behind(ppos, pdir, dist);
+    } else {
+        const struct TrailSample *newest = trail_at(g_trail_len - 1u);
+        struct PokebwVecFx32 prev;
+        prev.x = newest->x;
+        prev.y = newest->y;
+        prev.z = newest->z;
+        if (vec_dist3d(ppos, &prev) > WARP_DIST_THRESHOLD) {
+            trail_seed_behind(ppos, pdir, dist);
+        }
     }
     trail_sample(ppos, pdir, dist, &spos, &sdir);
 
@@ -518,8 +528,15 @@ static void follower_spawn(
 
     mmdl = ov010_FLDMMDL_AddMmdl(sys, &hdr, (int)zoneId);
     if (mmdl == NULL) {
+        fprintf(stderr,
+                "eidos: follower: AddMmdl failed (species=%u form=%u objCode=0x%X zone=%u)\n",
+                (unsigned)species, (unsigned)form, (unsigned)objCode, (unsigned)zoneId);
         return;
     }
+    fprintf(stderr,
+            "eidos: follower: spawned species=%u form=%u shiny=%u objCode=0x%X mdlSize=%u zone=%u\n",
+            (unsigned)species, (unsigned)form, (unsigned)shiny, (unsigned)objCode,
+            (unsigned)pokebw_ow_sprite_mdl_size(objCode), (unsigned)zoneId);
 
     if (ov010_FLDMMDL_SetStatusBitFellowHit != NULL) {
         ov010_FLDMMDL_SetStatusBitFellowHit(mmdl, 1);

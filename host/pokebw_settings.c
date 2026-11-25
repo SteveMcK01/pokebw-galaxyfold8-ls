@@ -2,6 +2,7 @@
  * host/pokebw_settings.c -- Persistent INI configuration for PokeBW Fold.
  */
 
+#include "crash_handler.h"
 #include "pokebw_settings.h"
 #include "pokebw_settings_ids.h"
 
@@ -237,6 +238,7 @@ void host_settings_reset_defaults(void)
                  "Save folder reset to default. Restart app if switching existing saves.");
     }
     host_eidos_opt_set(POKEBW_EIDOS_OPT_INSTANT_TEXT, 0);
+    host_crash_set_save_dir(host_settings_effective_save_dir());
     (void)host_settings_save();
 }
 
@@ -492,6 +494,7 @@ void host_settings_set_save_dir(const char *new_dir)
     snprintf(s->save_dir, sizeof(s->save_dir), "%s", clean_dir);
     (void)host_settings_save();
     snprintf(new_eff, sizeof(new_eff), "%s", host_settings_effective_save_dir());
+    host_crash_set_save_dir(new_eff);
 
     if (strcmp(old_eff, new_eff) != 0) {
         char old_sav[1200];

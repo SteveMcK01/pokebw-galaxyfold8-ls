@@ -5,6 +5,7 @@
 
 #if defined(HOST_IMGUI)
 
+#include "crash_handler.h"
 #include "imgui_overlay.h"
 #include "pokebw_settings.h"
 #include "pokebw_settings_ids.h"
@@ -646,6 +647,26 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     }
                     if (host_save_dir_status()[0] != '\0') {
                         ImGui::TextWrapped("%s", host_save_dir_status());
+                    }
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Diagnostics & Crash Logs (Termux / Shizuku / ADB):");
+                    ImGui::Spacing();
+                    {
+                        static char s_diag_status[640] = "";
+                        ImGui::TextWrapped("Crash log: %s", host_crash_primary_path());
+                        if (host_crash_has_log()) {
+                            ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.35f, 1.0f),
+                                               "Previous crash log found on disk.");
+                        } else {
+                            ImGui::TextDisabled("No prior crash log recorded.");
+                        }
+                        if (ImGui::Button("Export Debug & Crash Log")) {
+                            host_crash_export_diag(s_diag_status, sizeof(s_diag_status));
+                        }
+                        help_marker("Bundles the latest crash log and stderr.txt into pokebw_diag.log in external app storage and your active save folder.");
+                        if (s_diag_status[0] != '\0') {
+                            ImGui::TextWrapped("%s", s_diag_status);
+                        }
                     }
                     ImGui::EndTabItem();
                 }

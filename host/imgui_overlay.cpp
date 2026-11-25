@@ -563,6 +563,21 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     setting_checkbox("Following Pokemon",
                                      "Your first conscious party Pokemon walks behind you on the overworld. Press A facing it to hear its cry.",
                                      &cfg->following_pokemon);
+                    setting_checkbox("Overworld Wild Pokemon",
+                                     "Visible wild Pokemon roam tall grass, caves, and water using live Unova season tables. Touch or press A to battle.",
+                                     &cfg->overworld_wilds);
+                    ImGui::Indent();
+                    if (cfg->overworld_wilds == 0) {
+                        ImGui::BeginDisabled();
+                    }
+                    if (ImGui::SliderInt("Overworld Wild Density", &cfg->overworld_wild_density, 1, 6)) {
+                        host_settings_save();
+                    }
+                    help_marker("Maximum simultaneous roaming wild Pokemon on the current map (1-6).");
+                    if (cfg->overworld_wilds == 0) {
+                        ImGui::EndDisabled();
+                    }
+                    ImGui::Unindent();
                     ImGui::Separator();
                     setting_checkbox("Portable PC Box Access",
                                      "Open Unova PC Boxes anywhere on the overworld (blocked during battles, cutscenes, or restricted areas).",

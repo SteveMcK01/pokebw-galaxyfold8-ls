@@ -3426,15 +3426,17 @@ if(NOT _eidos_ovls STREQUAL "")
             "-Wl,--wrap=ov010_FLDMMDL_LoadObjCodeParam")
     endif()
 
-    # PokeBW Fold Phase 3.2: Native C Following Pokémon
+    # PokeBW Fold Phase 3.2 & 3.3: Native C Following Pokémon & Overworld Wilds
     if(NOT MSVC AND NOT APPLE AND EIDOS_BOOT AND
        (_eidos_ovls STREQUAL "ALL" OR
         (";${_eidos_ovls};" MATCHES ";10;" AND ";${_eidos_ovls};" MATCHES ";21;")))
         target_sources(eidos_boot PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_follower.c)
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_follower.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_wild.c)
         target_link_options(eidos_boot PRIVATE
             "-Wl,--wrap=ov010_FLDMMDL_UpdateSysProc"
-            "-Wl,--wrap=ov021_FIELDMAP_DeleteMmdlSys")
+            "-Wl,--wrap=ov021_FIELDMAP_DeleteMmdlSys"
+            "-Wl,--wrap=ov021_FIELD_ENCOUNT_CreatePersonality")
     endif()
 
     # test_ovlink_title: every overlay of the set loaded from the extract in

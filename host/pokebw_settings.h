@@ -30,6 +30,8 @@ typedef struct {
     int catch_em_all;
     int portable_pc;
     int following_pokemon;
+    int overworld_wilds;
+    int overworld_wild_density; /* 1..6 */
 
     /* QoL */
     int hard_level_cap;

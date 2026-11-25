@@ -20,6 +20,7 @@
 #include "pokebw_follower.h"
 #include "pokebw_ow_sprites.h"
 #include "pokebw_settings_ids.h"
+#include "pokebw_wild.h"
 
 #if defined(__GNUC__) || defined(__clang__)
 #define POKEBW_FOL_WEAK __attribute__((weak))
@@ -798,6 +799,7 @@ void pokebw_follower_on_a_press(void *gameSystem, void *fieldMap)
 void __wrap_ov010_FLDMMDL_UpdateSysProc(void *sys)
 {
     pokebw_follower_tick(sys);
+    pokebw_wild_tick(sys);
     __real_ov010_FLDMMDL_UpdateSysProc(sys);
 }
 
@@ -805,13 +807,20 @@ int __wrap_ov021_FIELDMAP_DeleteMmdlSys(void *fieldMap)
 {
     if (fieldMap != NULL && ov021_FIELDMAP_GetMmdlSys != NULL) {
         void *sys = ov021_FIELDMAP_GetMmdlSys(fieldMap);
-        if (sys != NULL && g_mmdl != NULL && g_sys == sys) {
-            follower_despawn(sys, 1);
+        if (sys != NULL) {
+            if (g_mmdl != NULL && g_sys == sys) {
+                follower_despawn(sys, 1);
+            } else {
+                follower_reset_state(1);
+            }
+            pokebw_wild_on_delete_sys(sys);
         } else {
             follower_reset_state(1);
+            pokebw_wild_on_delete_sys(NULL);
         }
     } else {
         follower_reset_state(1);
+        pokebw_wild_on_delete_sys(NULL);
     }
     return __real_ov021_FIELDMAP_DeleteMmdlSys(fieldMap);
 }

@@ -33,8 +33,10 @@ enum {
     POKEBW_SET_CLOCK_OVERRIDE        = 36, /* 0 Auto, 1 Morning, 2 Day, 3 Evening, 4 Night */
     POKEBW_SET_TYPE_EFFECTIVENESS    = 37,
 
-    /* Phase 3 Overworld Followers */
+    /* Phase 3 Overworld Followers & Wild Spawns */
     POKEBW_SET_FOLLOWING_POKEMON     = 40,
+    POKEBW_SET_OVERWORLD_WILDS       = 41,
+    POKEBW_SET_OVERWORLD_WILD_DENSITY = 42,
 };
 
 /* Mirror of engine/platform/settings.h EIDOS_OPT_* IDs exposed to ImGui. */
@@ -65,10 +67,14 @@ static inline int bw_pokebw_setting(int id)
 #else
 static inline int bw_pokebw_setting(int id)
 {
+    if (id == POKEBW_SET_OVERWORLD_WILD_DENSITY) {
+        return 4;
+    }
     return (id == POKEBW_SET_TRADE_EVO_FIX ||
             id == POKEBW_SET_PORTABLE_PC ||
             id == POKEBW_SET_TYPE_EFFECTIVENESS ||
-            id == POKEBW_SET_FOLLOWING_POKEMON) ? 1 : 0;
+            id == POKEBW_SET_FOLLOWING_POKEMON ||
+            id == POKEBW_SET_OVERWORLD_WILDS) ? 1 : 0;
 }
 #endif
 

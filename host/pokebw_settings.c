@@ -46,6 +46,8 @@ static void apply_all_defaults(PokebwSettings *s)
     s->trade_evo_fix = 1;
     s->portable_pc = 1;
     s->following_pokemon = 1;
+    s->overworld_wilds = 1;
+    s->overworld_wild_density = 4;
     s->type_effectiveness = 1;
 }
 
@@ -97,6 +99,8 @@ static void parse_ini_line(const char *section, const char *key, const char *val
         else if (strcmp(key, "catch_em_all") == 0) g_settings.catch_em_all = parse_bool(val);
         else if (strcmp(key, "portable_pc") == 0) g_settings.portable_pc = parse_bool(val);
         else if (strcmp(key, "following_pokemon") == 0) g_settings.following_pokemon = parse_bool(val);
+        else if (strcmp(key, "overworld_wilds") == 0) g_settings.overworld_wilds = parse_bool(val);
+        else if (strcmp(key, "overworld_wild_density") == 0) g_settings.overworld_wild_density = clamp_int(atoi(val), 1, 6);
     } else if (strcmp(section, "QoL") == 0) {
         if (strcmp(key, "hard_level_cap") == 0) g_settings.hard_level_cap = parse_bool(val);
         else if (strcmp(key, "no_random_encounters") == 0) g_settings.no_random_encounters = parse_bool(val);
@@ -208,6 +212,8 @@ int host_settings_get_by_id(int id)
     case POKEBW_SET_CATCH_EM_ALL:         return s->catch_em_all;
     case POKEBW_SET_PORTABLE_PC:          return s->portable_pc;
     case POKEBW_SET_FOLLOWING_POKEMON:    return s->following_pokemon;
+    case POKEBW_SET_OVERWORLD_WILDS:      return s->overworld_wilds;
+    case POKEBW_SET_OVERWORLD_WILD_DENSITY: return clamp_int(s->overworld_wild_density, 1, 6);
     case POKEBW_SET_FOLD_PIP_MODE:        return s->fold_pip_mode;
     case POKEBW_SET_HARD_LEVEL_CAP:       return s->hard_level_cap;
     case POKEBW_SET_NO_RANDOM_ENCOUNTERS: return s->no_random_encounters;
@@ -264,7 +270,9 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             "hm_no_badges = %d\n"
             "catch_em_all = %d\n"
             "portable_pc = %d\n"
-            "following_pokemon = %d\n\n"
+            "following_pokemon = %d\n"
+            "overworld_wilds = %d\n"
+            "overworld_wild_density = %d\n\n"
             "[QoL]\n"
             "hard_level_cap = %d\n"
             "no_random_encounters = %d\n"
@@ -287,6 +295,8 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             s->catch_em_all ? 1 : 0,
             s->portable_pc ? 1 : 0,
             s->following_pokemon ? 1 : 0,
+            s->overworld_wilds ? 1 : 0,
+            clamp_int(s->overworld_wild_density, 1, 6),
             s->hard_level_cap ? 1 : 0,
             s->no_random_encounters ? 1 : 0,
             s->always_bite_fishing ? 1 : 0,

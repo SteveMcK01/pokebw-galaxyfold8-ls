@@ -19,6 +19,7 @@
 #include "pokebw_follower.h"
 #include "pokebw_gear.h"
 #include "pokebw_settings_ids.h"
+#include "pokebw_wild.h"
 
 #if defined(__GNUC__) || defined(__clang__)
 #define POKEBW_PC_WEAK __attribute__((weak))
@@ -271,6 +272,12 @@ void *__wrap_ov021_FIELD_EVENT_CHECK_RunGrid(void *gameSystem, void *fieldMapArg
     }
     pokebw_gear_on_field_tick(gameSystem, fieldMapArg);
     pokebw_follower_on_a_press(gameSystem, fieldMapArg);
+    {
+        void *wild_ev = pokebw_wild_check_encounter(gameSystem, fieldMapArg);
+        if (wild_ev != NULL) {
+            return wild_ev;
+        }
+    }
     return pokebw_try_open_pc(gameSystem, fieldMapArg, 0);
 }
 

@@ -3436,6 +3436,7 @@ if(NOT _eidos_ovls STREQUAL "")
         target_link_options(eidos_boot PRIVATE
             "-Wl,--wrap=ov010_FLDMMDL_UpdateSysProc"
             "-Wl,--wrap=ov021_FIELDMAP_DeleteMmdlSys"
+            "-Wl,--wrap=ov021_FLDMMDL_BLACT_AddRes"
             "-Wl,--wrap=ov021_FIELD_ENCOUNT_CreatePersonality")
     endif()
 

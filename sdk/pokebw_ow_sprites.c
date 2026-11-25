@@ -43,6 +43,12 @@
 #define WALK_TEMPLATE_CODE 1u
 #define ANIM_ID_8FRAME     14u
 
+#if defined(__GNUC__) || defined(__clang__)
+#define POKEBW_OW_WEAK __attribute__((weak))
+#else
+#define POKEBW_OW_WEAK
+#endif
+
 #define ICON_PAL_ADDR      0x0209E474u
 #define ICON_PAL_BYTES     0x300u
 #define ICON_MEMBERS       1431u
@@ -93,6 +99,7 @@ struct PokebwOwEntry {
 };
 
 static struct PokebwOwEntry g_entries[OW_MAX_SLOTS];
+static struct PokebwOwEntry g_water_entries[POKEBW_OW_WATER_SLOTS];
 static uint32_t g_entry_count = 0u;
 static uint32_t g_custom_count = 0u;
 static uint32_t g_form_count = 0u;
@@ -101,7 +108,10 @@ static int g_registered = 0;
 /* Fast lookup for normal/shiny base forms (1..649). */
 static uint16_t g_base_objcode[POKEBW_OW_SPECIES_MAX + 1u][2];
 
-extern void __real_ov010_FLDMMDL_LoadObjCodeParam(const void *sys, uint32_t objCode, void *out);
+extern void *G3D_SYSTEM_GetResourceFile(void *res) POKEBW_OW_WEAK;
+extern void  __real_ov010_FLDMMDL_LoadObjCodeParam(const void *sys, uint32_t objCode, void *out);
+extern void  __real_ov021_FLDMMDL_BLACT_AddRes(
+    void *cont, void *resHandle, uint16_t code, uint32_t mdlSize, uint8_t texSize, uint32_t flags);
 
 static uint16_t rd16_le(const uint8_t *p)
 {
@@ -745,9 +755,89 @@ int pokebw_ow_sprites_register(void)
     return 0;
 }
 
+static void clip_btx0_bottom_30(uint8_t *btx, uint32_t mdl_size, uint8_t tex_size)
+{
+    uint32_t file_size, sec_off, tex0_avail, td_off, td_avail, ofs_entries, ofs_tex;
+    uint16_t tex_ofs, params;
+    uint32_t fmt, s_code, t_code, tex_w, tex_h, cell_h, clip_rows, row_bytes, n_frames, f;
+    uint8_t *tex0;
+    const uint8_t *td;
+    uint8_t *texels;
+
+    if (btx == NULL || btx[0] != 'B' || btx[1] != 'T' || btx[2] != 'X' || btx[3] != '0') {
+        return;
+    }
+    file_size = rd32_le(btx + 0x08u);
+    sec_off = rd32_le(btx + 0x10u);
+    if (file_size < 0x54u || sec_off < 0x10u || sec_off + 0x3Cu > file_size) {
+        return;
+    }
+    tex0 = btx + sec_off;
+    tex0_avail = file_size - sec_off;
+    if (tex0[0] != 'T' || tex0[1] != 'E' || tex0[2] != 'X' || tex0[3] != '0') {
+        return;
+    }
+    td_off = rd16_le(tex0 + 0x0Eu);
+    ofs_tex = rd32_le(tex0 + 0x14u);
+    if (td_off < 0x3Cu || td_off + 24u > tex0_avail || ofs_tex > tex0_avail) {
+        return;
+    }
+    td = tex0 + td_off;
+    td_avail = tex0_avail - td_off;
+    ofs_entries = rd16_le(td + 6u);
+    if (ofs_entries < 8u || ofs_entries + 8u > td_avail) {
+        return;
+    }
+    tex_ofs = rd16_le(td + ofs_entries + 4u);
+    params = rd16_le(td + ofs_entries + 6u);
+    fmt = (params >> 10) & 7u;
+    if (fmt != 3u) {
+        return; /* only clip 4bpp PAL16 textures */
+    }
+    s_code = (tex_size < 64u) ? ((uint32_t)tex_size >> 3) : ((params >> 4) & 7u);
+    t_code = (tex_size < 64u) ? ((uint32_t)tex_size & 7u) : ((params >> 7) & 7u);
+    tex_w = 8u << s_code;
+    tex_h = 8u << t_code;
+    cell_h = cell_px_for_mdl((uint8_t)mdl_size);
+    if (tex_h < cell_h || ofs_tex + ((uint32_t)tex_ofs << 3) + (tex_w * tex_h) / 2u > tex0_avail) {
+        return;
+    }
+
+    row_bytes = tex_w / 2u;
+    n_frames = tex_h / cell_h;
+    clip_rows = (cell_h * 30u + 50u) / 100u; /* 16->5px, 32->10px, 64->19px */
+    if (clip_rows == 0u || clip_rows >= cell_h) {
+        return;
+    }
+
+    texels = tex0 + ofs_tex + ((uint32_t)tex_ofs << 3);
+    for (f = 0u; f < n_frames; f++) {
+        uint8_t *frame = texels + f * cell_h * row_bytes;
+        uint32_t keep_bytes = (cell_h - clip_rows) * row_bytes;
+        uint32_t clear_bytes = clip_rows * row_bytes;
+        memmove(frame + clear_bytes, frame, keep_bytes);
+        memset(frame, 0, clear_bytes);
+    }
+}
+
+static const struct PokebwOwEntry *lookup_water_entry(uint32_t objCode)
+{
+    if (objCode >= POKEBW_OW_WATER_OBJCODE_BASE && objCode < POKEBW_OW_WATER_OBJCODE_END) {
+        const struct PokebwOwEntry *w = &g_water_entries[objCode - POKEBW_OW_WATER_OBJCODE_BASE];
+        if (w->active) {
+            return w;
+        }
+    }
+    return NULL;
+}
+
 uint8_t pokebw_ow_sprite_mdl_size(uint16_t objCode)
 {
     uint32_t slot;
+    const struct PokebwOwEntry *w = lookup_water_entry(objCode);
+    if (w != NULL) {
+        return w->param.mdlSize;
+    }
     if (objCode < POKEBW_OW_OBJCODE_BASE || objCode >= POKEBW_OW_OBJCODE_END) {
         return 0u;
     }
@@ -773,9 +863,37 @@ uint16_t pokebw_ow_sprite_objcode(uint16_t species, uint8_t form, int shiny)
     return g_entries[slot].obj_code;
 }
 
+uint16_t pokebw_ow_sprite_water_objcode(uint32_t pool_slot, uint16_t species, uint8_t form, int shiny)
+{
+    uint16_t base_code;
+    uint32_t base_idx;
+    struct PokebwOwEntry *w;
+
+    if (pool_slot >= POKEBW_OW_WATER_SLOTS) {
+        return 0u;
+    }
+    base_code = pokebw_ow_sprite_objcode(species, form, shiny);
+    if (base_code == 0u || base_code < POKEBW_OW_OBJCODE_BASE || base_code >= POKEBW_OW_WATER_OBJCODE_BASE) {
+        return 0u;
+    }
+    base_idx = (uint32_t)(base_code - POKEBW_OW_OBJCODE_BASE);
+    if (base_idx >= g_entry_count || !g_entries[base_idx].active) {
+        return 0u;
+    }
+    w = &g_water_entries[pool_slot];
+    *w = g_entries[base_idx];
+    w->obj_code = (uint16_t)(POKEBW_OW_WATER_OBJCODE_BASE + pool_slot);
+    w->param.code = w->obj_code;
+    w->active = 1u;
+    return w->obj_code;
+}
+
 int pokebw_ow_sprites_is_code(uint32_t objCode)
 {
     uint32_t slot;
+    if (lookup_water_entry(objCode) != NULL) {
+        return 1;
+    }
     if (objCode < POKEBW_OW_OBJCODE_BASE || objCode >= POKEBW_OW_OBJCODE_END) {
         return 0;
     }
@@ -798,6 +916,11 @@ void pokebw_ow_sprites_stats(uint32_t *out_total, uint32_t *out_custom, uint32_t
 
 void __wrap_ov010_FLDMMDL_LoadObjCodeParam(const void *sys, uint32_t objCode, void *out)
 {
+    const struct PokebwOwEntry *w = lookup_water_entry(objCode);
+    if (w != NULL && out != NULL) {
+        memcpy(out, &w->param, PARAM_RECORD_SIZE);
+        return;
+    }
     if (objCode >= POKEBW_OW_OBJCODE_BASE && objCode < POKEBW_OW_OBJCODE_END && out != NULL) {
         uint32_t slot = objCode - POKEBW_OW_OBJCODE_BASE;
         if (slot < g_entry_count && g_entries[slot].active) {
@@ -806,4 +929,15 @@ void __wrap_ov010_FLDMMDL_LoadObjCodeParam(const void *sys, uint32_t objCode, vo
         }
     }
     __real_ov010_FLDMMDL_LoadObjCodeParam(sys, objCode, out);
+}
+
+void __wrap_ov021_FLDMMDL_BLACT_AddRes(
+    void *cont, void *resHandle, uint16_t code, uint32_t mdlSize, uint8_t texSize, uint32_t flags)
+{
+    if (code >= POKEBW_OW_WATER_OBJCODE_BASE && code < POKEBW_OW_WATER_OBJCODE_END &&
+        resHandle != NULL && G3D_SYSTEM_GetResourceFile != NULL) {
+        uint8_t *btx = (uint8_t *)G3D_SYSTEM_GetResourceFile(resHandle);
+        clip_btx0_bottom_30(btx, mdlSize, texSize);
+    }
+    __real_ov021_FLDMMDL_BLACT_AddRes(cont, resHandle, code, mdlSize, texSize, flags);
 }

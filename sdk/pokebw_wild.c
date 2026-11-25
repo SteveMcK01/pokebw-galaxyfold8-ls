@@ -4,10 +4,14 @@
  * Spawns visible roaming wild Pokémon in tall grass, dark grass, caves, sand,
  * and surfing water from the zone's live EncountData tables (honoring season
  * overrides and Phase 1.4 Gotta Catch 'Em All!), renders live shiny sprites,
- * submerges water spawns seamlessly, and starts wild battles on contact or A.
+ * clips non-Flying water spawns by 30% so they swim naturally in water,
+ * keeps off-screen spawns alive for a 7-second grace window, preserves surviving
+ * spawns across battles and full-screen menus in the same zone, and starts wild
+ * battles on contact or A-button press.
  *
  * Linked into eidos_boot only (CMakeLists.txt) via pokebw_follower / portable_pc
- * field ticks plus -Wl,--wrap=ov021_FIELD_ENCOUNT_CreatePersonality.
+ * field ticks plus -Wl,--wrap=ov021_FLDMMDL_BLACT_AddRes and
+ * -Wl,--wrap=ov021_FIELD_ENCOUNT_CreatePersonality.
  */
 
 #include <stddef.h>
@@ -25,19 +29,22 @@
 #define POKEBW_WILD_WEAK
 #endif
 
-#define WILD_MAX_SLOTS        6u
-#define WILD_OBJ_ID_BASE      0x00F6u /* F6..FB, clear of follower 0xFD */
-#define TILE_FX               0x10000
-#define PLAYER_FORM_SURF      2
-#define PLAYER_FORM_DIVE      3
+#define WILD_MAX_SLOTS              6u
+#define WILD_OBJ_ID_BASE            0x00F6u /* F6..FB, clear of follower 0xFD */
+#define TILE_FX                     0x10000
+#define PLAYER_FORM_SURF            2
+#define PLAYER_FORM_DIVE            3
+#define TYPE_FLYING                 2u
 
-#define WILD_SPAWN_INTERVAL   15
-#define WILD_MOVE_FRAMES      20
-#define WILD_DESPAWN_DIST_SQ  (10LL * 10LL)
-#define WILD_SHINY_DIST_SQ    (13LL * 13LL)
-#define WILD_LIFETIME_MIN     (35 * 60)
-#define WILD_LIFETIME_MAX     (65 * 60)
-#define WILD_COOLDOWN_FRAMES  90
+#define WILD_SPAWN_INTERVAL         15
+#define WILD_MOVE_FRAMES            20
+#define WILD_DESPAWN_DIST_SQ        (10LL * 10LL)
+#define WILD_SHINY_DIST_SQ          (13LL * 13LL)
+#define WILD_HARD_DESPAWN_DIST_SQ   (26LL * 26LL)
+#define WILD_OFFSCREEN_GRACE_FRAMES (7 * 60) /* 7 seconds at 60 fps */
+#define WILD_LIFETIME_MIN           (35 * 60)
+#define WILD_LIFETIME_MAX           (65 * 60)
+#define WILD_COOLDOWN_FRAMES        90
 
 struct PokebwWildVecFx32 {
     int32_t x;
@@ -88,11 +95,11 @@ struct PokebwWildEncountData {
 };
 
 struct PokebwWildFieldEncount {
-    void *fieldMap;                         /* 0x00 */
-    void *gameSystem;                       /* 0x04 */
-    void *gameData;                         /* 0x08 */
+    void *fieldMap;                            /* 0x00 */
+    void *gameSystem;                          /* 0x04 */
+    void *gameData;                            /* 0x08 */
     struct PokebwWildEncountData *encountData; /* 0x0C */
-    void *effectEncount;                    /* 0x10 */
+    void *effectEncount;                       /* 0x10 */
 };
 
 struct PokebwWildEncountMon {
@@ -146,6 +153,8 @@ struct WildSlot {
     uint8_t  level;
     uint8_t  shiny;
     uint8_t  habitat; /* 0 ground/grass, 1 dark grass, 3 water */
+    uint8_t  submerged;
+    uint8_t  water_pool_slot;
     uint8_t  moving;
     uint8_t  move_step;
     uint16_t dir;
@@ -160,7 +169,24 @@ struct WildSlot {
     struct PokebwWildVecFx32 pos;
     int      pause_frames;
     int      lifetime_frames;
+    int      offscreen_frames;
     int      sparkle_frames;
+};
+
+struct SavedWildSlot {
+    int      valid;
+    uint16_t species;
+    uint8_t  form;
+    uint8_t  level;
+    uint8_t  shiny;
+    uint8_t  habitat;
+    uint8_t  submerged;
+    uint16_t dir;
+    int16_t  gx;
+    int16_t  gz;
+    int32_t  y;
+    int      lifetime_frames;
+    int      offscreen_frames;
 };
 
 /* ARM9 symbols */
@@ -183,6 +209,7 @@ extern void    *BTL_SETUP_Create(uint32_t heap) POKEBW_WILD_WEAK;
 extern uint32_t GFL_USE_GetRandomBelow(uint32_t limit) POKEBW_WILD_WEAK;
 extern uint32_t POKE_TOOL_CreatePersonalRnd(uint32_t otId, int species, uint16_t form,
                                             int ratioMode, int shinyWanted, int mode) POKEBW_WILD_WEAK;
+extern uint32_t POKE_TOOL_GetPersonalParam(uint16_t species, uint16_t form, uint32_t field) POKEBW_WILD_WEAK;
 extern uint32_t POKE_PERSONAL_GetParam(const void *personal, int paramId) POKEBW_WILD_WEAK;
 extern uint32_t POKE_PERSONAL_IsFixedGender(uint8_t ratio) POKEBW_WILD_WEAK;
 
@@ -209,8 +236,8 @@ extern void  ov010_FLDMMDL_SetGridNowX(void *mmdl, int16_t x) POKEBW_WILD_WEAK;
 extern void  ov010_FLDMMDL_SetGridNowY(void *mmdl, int y) POKEBW_WILD_WEAK;
 extern void  ov010_FLDMMDL_SetGridNowZ(void *mmdl, int z) POKEBW_WILD_WEAK;
 extern void  ov010_FLDMMDL_SetGridOldX(void *mmdl, int16_t x) POKEBW_WILD_WEAK;
-extern void  ov010_FLDMMDL_SetGridOldY(void *mmdl, int16_t y) POKEBW_WILD_WEAK;
-extern void  ov010_FLDMMDL_SetGridOldZ(void *mmdl, int16_t z) POKEBW_WILD_WEAK;
+extern void  ov010_FLDMMDL_SetGridOldY(void *mmdl, int y) POKEBW_WILD_WEAK;
+extern void  ov010_FLDMMDL_SetGridOldZ(void *mmdl, int z) POKEBW_WILD_WEAK;
 extern void  ov010_FLDMMDL_SetZoneId(void *mmdl, uint16_t zoneId) POKEBW_WILD_WEAK;
 extern void *ov010_EVENT_BATTLE_CreateScriptedBattle(
     void *gameSystem, void *battleSrc, void *btlSetup, int returnImmediately, int effectId) POKEBW_WILD_WEAK;
@@ -253,7 +280,11 @@ extern void     ov021_FIELD_ENCOUNT_SetupWildBattle(
 extern uint32_t __real_ov021_FIELD_ENCOUNT_CreatePersonality(
     const void *param, void *personal, void *encMon);
 
-static struct WildSlot g_slots[WILD_MAX_SLOTS];
+static struct WildSlot      g_slots[WILD_MAX_SLOTS];
+static struct SavedWildSlot g_saved_slots[WILD_MAX_SLOTS];
+static uint16_t             g_saved_zone = 0xFFFFu;
+static int                  g_has_saved_slots = 0;
+
 static void    *g_sys = NULL;
 static uint16_t g_zone = 0xFFFFu;
 static int      g_spawn_timer = 0;
@@ -262,6 +293,7 @@ static int      g_hidden = 0;
 static uint32_t g_frame_phase = 0u;
 static uint32_t g_rng_state = 0x5A17D15Cu;
 static int      g_wild_force_shiny = 0;
+static uint32_t g_water_pool_cursor = 0u;
 
 static uint32_t wild_rng(void)
 {
@@ -298,6 +330,13 @@ static void dir_to_vec(uint16_t dir, int32_t *out_dx, int32_t *out_dz)
     }
 }
 
+static void clear_saved_slots(void)
+{
+    memset(g_saved_slots, 0, sizeof(g_saved_slots));
+    g_saved_zone = 0xFFFFu;
+    g_has_saved_slots = 0;
+}
+
 static void slot_reset(struct WildSlot *s)
 {
     memset(s, 0, sizeof(*s));
@@ -326,6 +365,64 @@ static void wild_despawn_all(void *sys)
     g_hidden = 0;
 }
 
+static uint8_t should_submerge_water_species(uint16_t species, uint8_t form)
+{
+    if (species == 130u /* Gyarados */ ||
+        species == 226u /* Mantine */ ||
+        species == 458u /* Mantyke */) {
+        return 1u;
+    }
+    if (POKE_TOOL_GetPersonalParam != NULL) {
+        uint32_t t1 = POKE_TOOL_GetPersonalParam(species, (uint16_t)form, 6u);
+        uint32_t t2 = POKE_TOOL_GetPersonalParam(species, (uint16_t)form, 7u);
+        if (t1 == TYPE_FLYING || t2 == TYPE_FLYING) {
+            return 0u;
+        }
+    }
+    return 1u;
+}
+
+static uint32_t pick_free_water_pool_slot(void)
+{
+    uint32_t step;
+    for (step = 0u; step < POKEBW_OW_WATER_SLOTS; step++) {
+        uint32_t cand = (g_water_pool_cursor + step) % POKEBW_OW_WATER_SLOTS;
+        int in_use = 0;
+        uint32_t i;
+        for (i = 0u; i < WILD_MAX_SLOTS; i++) {
+            if (g_slots[i].active && g_slots[i].submerged &&
+                g_slots[i].water_pool_slot == (uint8_t)cand) {
+                in_use = 1;
+                break;
+            }
+        }
+        if (!in_use) {
+            g_water_pool_cursor = (cand + 1u) % POKEBW_OW_WATER_SLOTS;
+            return cand;
+        }
+    }
+    {
+        uint32_t cand = g_water_pool_cursor % POKEBW_OW_WATER_SLOTS;
+        g_water_pool_cursor = (cand + 1u) % POKEBW_OW_WATER_SLOTS;
+        return cand;
+    }
+}
+
+static uint16_t resolve_wild_objcode(
+    uint16_t species, uint8_t form, int shiny, uint8_t submerged, uint32_t *out_pool_slot)
+{
+    if (submerged) {
+        uint32_t ps = pick_free_water_pool_slot();
+        uint16_t code = pokebw_ow_sprite_water_objcode(ps, species, form, shiny);
+        if (code != 0u) {
+            *out_pool_slot = ps;
+            return code;
+        }
+    }
+    *out_pool_slot = 0u;
+    return pokebw_ow_sprite_objcode(species, form, shiny);
+}
+
 static void slot_sync_mmdl(struct WildSlot *s, uint16_t zoneId, int vanish)
 {
     int16_t gx = (int16_t)(s->pos.x / TILE_FX);
@@ -340,7 +437,7 @@ static void slot_sync_mmdl(struct WildSlot *s, uint16_t zoneId, int vanish)
         ov010_FLDMMDL_SetStatusBitFellowHit(s->mmdl, 0);
     }
     if (ov010_FLDMMDL_SetMoveBitShadowVanish != NULL) {
-        ov010_FLDMMDL_SetMoveBitShadowVanish(s->mmdl, (vanish || s->habitat == 3u) ? 1 : 0);
+        ov010_FLDMMDL_SetMoveBitShadowVanish(s->mmdl, (vanish || s->submerged) ? 1 : 0);
     }
     if (ov010_FLDMMDL_SetZoneId != NULL) {
         ov010_FLDMMDL_SetZoneId(s->mmdl, zoneId);
@@ -362,8 +459,14 @@ static void slot_sync_mmdl(struct WildSlot *s, uint16_t zoneId, int vanish)
     }
     if (s->habitat == 3u) {
         uint32_t phase = (g_frame_phase + (uint32_t)s->obj_id * 13u) & 31u;
-        int32_t bob = (phase < 16u) ? ((int32_t)phase * 0x0100) : ((int32_t)(32u - phase) * 0x0100);
-        off.y = -0x4800 + bob;
+        int32_t bob = (phase < 16u) ? ((int32_t)phase * 0x00C0) : ((int32_t)(32u - phase) * 0x00C0);
+        if (s->submerged) {
+            /* Bottom 30% of sprite is clipped by add-res hook; gentle bob on surface. */
+            off.y = bob;
+        } else {
+            /* Flying-type water Pokémon hover cleanly above water with shadow visible. */
+            off.y = 0x2800 + bob;
+        }
     }
     if (s->shiny && s->sparkle_frames > 0) {
         int f = s->sparkle_frames;
@@ -439,15 +542,14 @@ static int query_tile_at(void *mapper, int16_t gx, int16_t gz, int32_t ref_y,
 
 static int roll_slot_for_habitat(
     const struct PokebwWildEncountData *enc, const void *gd, int hab,
-    uint16_t *out_species, uint8_t *out_form, uint8_t *out_level,
-    uint8_t *out_shiny, uint16_t *out_objcode)
+    uint16_t *out_species, uint8_t *out_form, uint8_t *out_level, uint8_t *out_shiny)
 {
     static const uint8_t k_ground_w[12] = { 20, 20, 10, 10, 10, 10, 5, 5, 4, 4, 1, 1 };
     static const uint8_t k_water_w[5]   = { 60, 30, 5, 4, 1 };
     const struct PokebwWildEncountSlot *table;
     const uint8_t *weights;
     uint32_t count, i, roll, acc = 0u, pick = 0u;
-    uint16_t sp, obj_code;
+    uint16_t sp;
     uint8_t fm, lv, lo, hi, sh;
 
     if (enc == NULL || !enc->enabled) {
@@ -495,8 +597,7 @@ static int roll_slot_for_habitat(
     if (hi < lo) hi = lo;
     lv = (uint8_t)(lo + wild_rand_below((uint32_t)(hi - lo) + 1u));
     sh = (wild_rand_below(8192u) == 0u) ? 1u : 0u;
-    obj_code = pokebw_ow_sprite_objcode(sp, fm, sh);
-    if (obj_code == 0u) {
+    if (pokebw_ow_sprite_objcode(sp, fm, sh) == 0u) {
         return 0;
     }
 
@@ -504,7 +605,6 @@ static int roll_slot_for_habitat(
     *out_form = fm;
     *out_level = lv;
     *out_shiny = sh;
-    *out_objcode = obj_code;
     return 1;
 }
 
@@ -529,6 +629,147 @@ static int tile_blocked_by_wild(int self_idx, int16_t gx, int16_t gz)
     return 0;
 }
 
+static int spawn_wild_in_slot(
+    void *sys, uint16_t zoneId, int slot_idx,
+    uint16_t species, uint8_t form, uint8_t level, uint8_t shiny,
+    uint8_t hab, uint8_t submerged, uint16_t dir,
+    int16_t cx, int16_t cz, int32_t ty,
+    int lifetime_frames, int offscreen_frames)
+{
+    struct PokebwWildMmdlHeader hdr;
+    uint32_t water_pool_slot = 0u;
+    uint16_t obj_code;
+    void *mmdl;
+
+    if (slot_idx < 0 || slot_idx >= (int)WILD_MAX_SLOTS ||
+        ov010_FLDMMDL_AddMmdl == NULL ||
+        ov010_FLDMMDL_SysGetFreeMmdl == NULL ||
+        ov010_FLDMMDL_SysSearchObjId == NULL) {
+        return 0;
+    }
+    if (ov010_FLDMMDL_SysGetFreeMmdl(sys) == NULL) {
+        return 0;
+    }
+    {
+        uint16_t obj_id = (uint16_t)(WILD_OBJ_ID_BASE + (uint16_t)slot_idx);
+        if (ov010_FLDMMDL_SysSearchObjId(sys, obj_id) != NULL) {
+            return 0;
+        }
+    }
+
+    obj_code = resolve_wild_objcode(species, form, shiny, submerged, &water_pool_slot);
+    if (obj_code == 0u) {
+        return 0;
+    }
+
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.objId = (uint16_t)(WILD_OBJ_ID_BASE + (uint16_t)slot_idx);
+    hdr.objCode = obj_code;
+    hdr.moveCode = 0u;
+    hdr.eventId = 0xFFFFu;
+    hdr.dirHeader = (dir <= 3u) ? dir : 1u;
+    hdr.posType = 0;
+    hdr.pos[0] = (uint16_t)cx;
+    hdr.pos[1] = (uint16_t)cz;
+    memcpy(&hdr.pos[2], &ty, sizeof(ty));
+
+    mmdl = ov010_FLDMMDL_AddMmdl(sys, &hdr, (int)zoneId);
+    if (mmdl == NULL) {
+        return 0;
+    }
+    if (ov010_FLDMMDL_SetStatusBitFellowHit != NULL) {
+        ov010_FLDMMDL_SetStatusBitFellowHit(mmdl, 0);
+    }
+    if (ov010_FLDMMDL_SetStatusBitHeightGetOff != NULL) {
+        ov010_FLDMMDL_SetStatusBitHeightGetOff(mmdl, 1);
+    }
+    if (ov010_FLDMMDL_SetStatusBitAttrGetOff != NULL) {
+        ov010_FLDMMDL_SetStatusBitAttrGetOff(mmdl, 1);
+    }
+    if (ov010_FLDMMDL_SetMoveBitAttrEffectOff != NULL) {
+        ov010_FLDMMDL_SetMoveBitAttrEffectOff(mmdl, 1);
+    }
+    if (ov010_FLDMMDL_SetStatusBitZoneDeleteOff != NULL) {
+        ov010_FLDMMDL_SetStatusBitZoneDeleteOff(mmdl, 1);
+    }
+
+    {
+        struct WildSlot *s = &g_slots[slot_idx];
+        slot_reset(s);
+        s->active = 1;
+        s->mmdl = mmdl;
+        s->obj_id = hdr.objId;
+        s->obj_code = obj_code;
+        s->species = species;
+        s->form = form;
+        s->level = level;
+        s->shiny = shiny;
+        s->habitat = hab;
+        s->submerged = submerged;
+        s->water_pool_slot = (uint8_t)water_pool_slot;
+        s->dir = hdr.dirHeader;
+        s->gx = cx;
+        s->gz = cz;
+        s->pos.x = (int32_t)cx * TILE_FX + (TILE_FX / 2);
+        s->pos.y = ty;
+        s->pos.z = (int32_t)cz * TILE_FX + (TILE_FX / 2);
+        s->start_x = s->target_x = s->pos.x;
+        s->start_y = s->target_y = s->pos.y;
+        s->start_z = s->target_z = s->pos.z;
+        s->pause_frames = 30 + (int)wild_rand_below(60u);
+        s->lifetime_frames = lifetime_frames;
+        s->offscreen_frames = offscreen_frames;
+        s->sparkle_frames = shiny ? 12 : 0;
+        slot_sync_mmdl(s, zoneId, 0);
+    }
+    return 1;
+}
+
+static void restore_saved_wilds(
+    void *sys, void *mapper, void *enc_sys, uint16_t zoneId, int16_t px, int16_t pz)
+{
+    uint32_t i;
+
+    if (!g_has_saved_slots) {
+        return;
+    }
+    if (g_saved_zone != zoneId) {
+        clear_saved_slots();
+        return;
+    }
+
+    for (i = 0u; i < WILD_MAX_SLOTS; i++) {
+        const struct SavedWildSlot *sv = &g_saved_slots[i];
+        int32_t ty = sv->y;
+        int hab = (int)sv->habitat;
+        int16_t gy;
+
+        if (!sv->valid) {
+            continue;
+        }
+        if (sv->gx == px && sv->gz == pz) {
+            continue;
+        }
+        if (query_tile_at(mapper, sv->gx, sv->gz, sv->y, &ty, &hab)) {
+            if (hab != (int)sv->habitat) {
+                continue;
+            }
+        }
+        gy = (int16_t)(ty / TILE_FX);
+        if (ov021_EFFECT_ENCOUNT_IsTileOccupied != NULL &&
+            ov021_EFFECT_ENCOUNT_IsTileOccupied(enc_sys, sv->gx, gy, sv->gz, 0) != 0) {
+            continue;
+        }
+        (void)spawn_wild_in_slot(
+            sys, zoneId, (int)i,
+            sv->species, sv->form, sv->level, sv->shiny,
+            sv->habitat, sv->submerged, sv->dir,
+            sv->gx, sv->gz, ty,
+            sv->lifetime_frames, sv->offscreen_frames);
+    }
+    clear_saved_slots();
+}
+
 static void try_spawn_wild(
     void *sys, void *mapper, void *encount_sys,
     const struct PokebwWildEncountData *enc, const void *gd,
@@ -539,21 +780,6 @@ static void try_spawn_wild(
     int16_t pz = (int16_t)(ppos->z / TILE_FX);
     int attempt;
 
-    if (ov010_FLDMMDL_AddMmdl == NULL ||
-        ov010_FLDMMDL_SysGetFreeMmdl == NULL ||
-        ov010_FLDMMDL_SysSearchObjId == NULL) {
-        return;
-    }
-    if (ov010_FLDMMDL_SysGetFreeMmdl(sys) == NULL) {
-        return;
-    }
-    {
-        uint16_t obj_id = (uint16_t)(WILD_OBJ_ID_BASE + (uint16_t)slot_idx);
-        if (ov010_FLDMMDL_SysSearchObjId(sys, obj_id) != NULL) {
-            return;
-        }
-    }
-
     for (attempt = 0; attempt < 16; attempt++) {
         int ox = (int)wild_rand_below(17u) - 8;
         int oz = (int)wild_rand_below(17u) - 8;
@@ -563,10 +789,10 @@ static void try_spawn_wild(
         int hab = -1;
         int too_close = 0;
         uint32_t k;
-        uint16_t species = 0u, obj_code = 0u;
-        uint8_t form = 0u, level = 1u, shiny = 0u;
-        struct PokebwWildMmdlHeader hdr;
-        void *mmdl;
+        uint16_t species = 0u;
+        uint8_t form = 0u, level = 1u, shiny = 0u, submerged = 0u;
+        uint16_t dir;
+        int life;
 
         if (dist_sq < 9 || dist_sq > 64) {
             continue;
@@ -598,66 +824,16 @@ static void try_spawn_wild(
         if (too_close) {
             continue;
         }
-        if (!roll_slot_for_habitat(enc, gd, hab, &species, &form, &level, &shiny, &obj_code)) {
+        if (!roll_slot_for_habitat(enc, gd, hab, &species, &form, &level, &shiny)) {
             continue;
         }
+        submerged = (hab == 3) ? should_submerge_water_species(species, form) : 0u;
+        dir = (uint16_t)wild_rand_below(4u);
+        life = WILD_LIFETIME_MIN + (int)wild_rand_below((uint32_t)(WILD_LIFETIME_MAX - WILD_LIFETIME_MIN));
 
-        memset(&hdr, 0, sizeof(hdr));
-        hdr.objId = (uint16_t)(WILD_OBJ_ID_BASE + (uint16_t)slot_idx);
-        hdr.objCode = obj_code;
-        hdr.moveCode = 0u;
-        hdr.eventId = 0xFFFFu;
-        hdr.dirHeader = (uint16_t)wild_rand_below(4u);
-        hdr.posType = 0;
-        hdr.pos[0] = (uint16_t)cx;
-        hdr.pos[1] = (uint16_t)cz;
-        memcpy(&hdr.pos[2], &ty, sizeof(ty));
-
-        mmdl = ov010_FLDMMDL_AddMmdl(sys, &hdr, (int)zoneId);
-        if (mmdl == NULL) {
+        if (spawn_wild_in_slot(sys, zoneId, slot_idx, species, form, level, shiny,
+                               (uint8_t)hab, submerged, dir, cx, cz, ty, life, 0)) {
             return;
-        }
-        if (ov010_FLDMMDL_SetStatusBitFellowHit != NULL) {
-            ov010_FLDMMDL_SetStatusBitFellowHit(mmdl, 0);
-        }
-        if (ov010_FLDMMDL_SetStatusBitHeightGetOff != NULL) {
-            ov010_FLDMMDL_SetStatusBitHeightGetOff(mmdl, 1);
-        }
-        if (ov010_FLDMMDL_SetStatusBitAttrGetOff != NULL) {
-            ov010_FLDMMDL_SetStatusBitAttrGetOff(mmdl, 1);
-        }
-        if (ov010_FLDMMDL_SetMoveBitAttrEffectOff != NULL) {
-            ov010_FLDMMDL_SetMoveBitAttrEffectOff(mmdl, 1);
-        }
-        if (ov010_FLDMMDL_SetStatusBitZoneDeleteOff != NULL) {
-            ov010_FLDMMDL_SetStatusBitZoneDeleteOff(mmdl, 1);
-        }
-
-        {
-            struct WildSlot *s = &g_slots[slot_idx];
-            slot_reset(s);
-            s->active = 1;
-            s->mmdl = mmdl;
-            s->obj_id = hdr.objId;
-            s->obj_code = obj_code;
-            s->species = species;
-            s->form = form;
-            s->level = level;
-            s->shiny = shiny;
-            s->habitat = (uint8_t)hab;
-            s->dir = hdr.dirHeader;
-            s->gx = cx;
-            s->gz = cz;
-            s->pos.x = (int32_t)cx * TILE_FX + (TILE_FX / 2);
-            s->pos.y = ty;
-            s->pos.z = (int32_t)cz * TILE_FX + (TILE_FX / 2);
-            s->start_x = s->target_x = s->pos.x;
-            s->start_y = s->target_y = s->pos.y;
-            s->start_z = s->target_z = s->pos.z;
-            s->pause_frames = 30 + (int)wild_rand_below(60u);
-            s->lifetime_frames = WILD_LIFETIME_MIN + (int)wild_rand_below((uint32_t)(WILD_LIFETIME_MAX - WILD_LIFETIME_MIN));
-            s->sparkle_frames = shiny ? 12 : 0;
-            slot_sync_mmdl(s, zoneId, 0);
         }
         return;
     }
@@ -729,6 +905,7 @@ void pokebw_wild_tick(void *sys)
     zoneId = ov021_FIELDMAP_GetZoneId(fieldMap);
     if (g_zone != 0xFFFFu && g_zone != zoneId) {
         wild_despawn_all(sys);
+        clear_saved_slots();
     }
 
     party = GAME_DATA_GetMyParty(gd);
@@ -747,6 +924,9 @@ void pokebw_wild_tick(void *sys)
         (ov021_FIELDMAP_IsMmdlDrawEnabled != NULL && ov021_FIELDMAP_IsMmdlDrawEnabled((int)zoneId) == 0) ||
         (comm != NULL && GAME_COMM_GetKind != NULL && GAME_COMM_GetKind(comm) != 0u)) {
         wild_despawn_all(sys);
+        if (bw_pokebw_setting(POKEBW_SET_OVERWORLD_WILDS) == 0) {
+            clear_saved_slots();
+        }
         return;
     }
 
@@ -776,6 +956,10 @@ void pokebw_wild_tick(void *sys)
     g_zone = zoneId;
     g_hidden = hide;
 
+    if (!hide && g_has_saved_slots) {
+        restore_saved_wilds(sys, mapper, enc_sys, zoneId, px, pz);
+    }
+
     for (i = 0u; i < WILD_MAX_SLOTS; i++) {
         struct WildSlot *s = &g_slots[i];
         int64_t dx, dz, dist_sq, limit_sq;
@@ -791,12 +975,32 @@ void pokebw_wild_tick(void *sys)
         dist_sq = dx * dx + dz * dz;
         limit_sq = s->shiny ? WILD_SHINY_DIST_SQ : WILD_DESPAWN_DIST_SQ;
 
-        if (dist_sq > limit_sq || (!s->shiny && --s->lifetime_frames <= 0)) {
-            slot_despawn(sys, s);
-            if (first_free < 0) {
-                first_free = (int)i;
+        if (!hide) {
+            if (dist_sq > WILD_HARD_DESPAWN_DIST_SQ) {
+                slot_despawn(sys, s);
+                if (first_free < 0) {
+                    first_free = (int)i;
+                }
+                continue;
             }
-            continue;
+            if (dist_sq > limit_sq) {
+                if (++s->offscreen_frames >= WILD_OFFSCREEN_GRACE_FRAMES) {
+                    slot_despawn(sys, s);
+                    if (first_free < 0) {
+                        first_free = (int)i;
+                    }
+                    continue;
+                }
+            } else {
+                s->offscreen_frames = 0;
+            }
+            if (!s->shiny && --s->lifetime_frames <= 0) {
+                slot_despawn(sys, s);
+                if (first_free < 0) {
+                    first_free = (int)i;
+                }
+                continue;
+            }
         }
         active_count++;
 
@@ -871,6 +1075,39 @@ void pokebw_wild_tick(void *sys)
 
 void pokebw_wild_on_delete_sys(void *sys)
 {
+    uint32_t i;
+    int saved_any = 0;
+
+    if (g_zone != 0xFFFFu && bw_pokebw_setting(POKEBW_SET_OVERWORLD_WILDS) != 0) {
+        clear_saved_slots();
+        for (i = 0u; i < WILD_MAX_SLOTS; i++) {
+            const struct WildSlot *s = &g_slots[i];
+            if (!s->active) {
+                continue;
+            }
+            g_saved_slots[i].valid = 1;
+            g_saved_slots[i].species = s->species;
+            g_saved_slots[i].form = s->form;
+            g_saved_slots[i].level = s->level;
+            g_saved_slots[i].shiny = s->shiny;
+            g_saved_slots[i].habitat = s->habitat;
+            g_saved_slots[i].submerged = s->submerged;
+            g_saved_slots[i].dir = s->dir;
+            g_saved_slots[i].gx = s->gx;
+            g_saved_slots[i].gz = s->gz;
+            g_saved_slots[i].y = s->pos.y;
+            g_saved_slots[i].lifetime_frames = s->lifetime_frames;
+            g_saved_slots[i].offscreen_frames = s->offscreen_frames;
+            saved_any = 1;
+        }
+        if (saved_any) {
+            g_saved_zone = g_zone;
+            g_has_saved_slots = 1;
+        }
+    } else {
+        clear_saved_slots();
+    }
+
     wild_despawn_all(sys);
 }
 
@@ -1036,9 +1273,10 @@ void *pokebw_wild_check_encounter(void *gameSystem, void *fieldMap)
         ev = ov010_EVENT_BATTLE_CreateScriptedBattle(gameSystem, fieldMap, btlSetup, 0, 0);
         if (ev != NULL) {
             fprintf(stderr,
-                    "eidos: wild: battle species=%u form=%u lv=%u shiny=%u hab=%u\n",
+                    "eidos: wild: battle species=%u form=%u lv=%u shiny=%u hab=%u submerged=%u\n",
                     (unsigned)picked.species, (unsigned)picked.form,
-                    (unsigned)picked.level, (unsigned)picked.shiny, (unsigned)picked.habitat);
+                    (unsigned)picked.level, (unsigned)picked.shiny,
+                    (unsigned)picked.habitat, (unsigned)picked.submerged);
         }
         return ev;
     }

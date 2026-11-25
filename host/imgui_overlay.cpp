@@ -601,8 +601,35 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
 
                 if (ImGui::BeginTabItem("QoL")) {
                     static const char *const k_transitions[] = { "Original", "Fast", "Seamless" };
+                    static const char *const k_ff_speeds[]   = { "2x", "3x", "4x", "Max (Uncapped)" };
+                    static const char *const k_shiny_odds[]  = {
+                        "1/8192 (Vanilla)",
+                        "1/1024 (8x)",
+                        "1/256 (32x)",
+                        "1/64 (128x)",
+                        "100% (Always Shiny)"
+                    };
 
                     ImGui::Spacing();
+                    ImGui::TextDisabled("Fast-Forward & Shiny Odds:");
+                    ImGui::Spacing();
+                    setting_checkbox("Fast-Forward Active",
+                                     "Run overworld and battles at boosted speed. You can also tap the top-center FF pill anytime.",
+                                     &cfg->fast_forward);
+                    {
+                        int ff_sp = std::clamp(cfg->fast_forward_speed, 0, 3);
+                        if (ImGui::Combo("Fast-Forward Speed", &ff_sp, k_ff_speeds, 4)) {
+                            cfg->fast_forward_speed = ff_sp;
+                            host_settings_save();
+                        }
+                        int sh = std::clamp(cfg->shiny_odds, 0, 4);
+                        if (ImGui::Combo("Shiny Odds", &sh, k_shiny_odds, 5)) {
+                            cfg->shiny_odds = sh;
+                            host_settings_save();
+                        }
+                        help_marker("Applies to wild Pokemon, overworld wilds, static legendaries, starters/gifts, and hatched eggs while preserving nature, gender, and ability.");
+                    }
+                    ImGui::Separator();
                     eidos_checkbox("Instant Text",
                                    "Print each dialogue page at once while keeping page-turn pauses.",
                                    POKEBW_EIDOS_OPT_INSTANT_TEXT);

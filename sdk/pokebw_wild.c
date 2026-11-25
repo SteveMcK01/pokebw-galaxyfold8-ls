@@ -21,6 +21,7 @@
 
 #include "pokebw_wild.h"
 #include "pokebw_ow_sprites.h"
+#include "pokebw_shiny.h"
 #include "pokebw_settings_ids.h"
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -293,6 +294,7 @@ static int      g_hidden = 0;
 static uint32_t g_frame_phase = 0u;
 static uint32_t g_rng_state = 0x5A17D15Cu;
 static int      g_wild_force_shiny = 0;
+static int      g_wild_from_overworld = 0;
 static uint32_t g_water_pool_cursor = 0u;
 
 static uint32_t wild_rng(void)
@@ -596,7 +598,7 @@ static int roll_slot_for_habitat(
     if (lo == 0u) lo = 1u;
     if (hi < lo) hi = lo;
     lv = (uint8_t)(lo + wild_rand_below((uint32_t)(hi - lo) + 1u));
-    sh = (wild_rand_below(8192u) == 0u) ? 1u : 0u;
+    sh = (uint8_t)pokebw_shiny_roll();
     if (pokebw_ow_sprite_objcode(sp, fm, sh) == 0u) {
         return 0;
     }
@@ -1266,9 +1268,11 @@ void *pokebw_wild_check_encounter(void *gameSystem, void *fieldMap)
         if (btlSetup == NULL) {
             return NULL;
         }
+        g_wild_from_overworld = 1;
         g_wild_force_shiny = picked.shiny ? 1 : 0;
         ov021_FIELD_ENCOUNT_SetupWildBattle(enc_sys, &param, btlSetup, 4u, mons);
         g_wild_force_shiny = 0;
+        g_wild_from_overworld = 0;
 
         ev = ov010_EVENT_BATTLE_CreateScriptedBattle(gameSystem, fieldMap, btlSetup, 0, 0);
         if (ev != NULL) {
@@ -1307,5 +1311,20 @@ uint32_t __wrap_ov021_FIELD_ENCOUNT_CreatePersonality(
             param->ownerId, (int)em->species, (uint16_t)em->form,
             (int)gender, (int)wild_rand_below(2u), 1);
     }
-    return __real_ov021_FIELD_ENCOUNT_CreatePersonality(param_ptr, personal, enc_ptr);
+    {
+        uint32_t pid;
+        pokebw_shiny_enter_wild();
+        pid = __real_ov021_FIELD_ENCOUNT_CreatePersonality(param_ptr, personal, enc_ptr);
+        pokebw_shiny_leave_wild();
+
+        if (!g_wild_from_overworld && param_ptr != NULL && pokebw_shiny_is_boosted()) {
+            const struct PokebwWildEncountParam *param =
+                (const struct PokebwWildEncountParam *)param_ptr;
+            if (!pokebw_shiny_is_pid_shiny(param->ownerId, pid) &&
+                pokebw_shiny_roll_boosted()) {
+                return pokebw_shiny_force_pid(param->ownerId, pid);
+            }
+        }
+        return pid;
+    }
 }

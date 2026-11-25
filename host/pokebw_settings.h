@@ -41,6 +41,9 @@ typedef struct {
     int season_override; /* 0 Auto, 1 Spring, 2 Summer, 3 Autumn, 4 Winter */
     int clock_override;  /* 0 Auto, 1 Morning, 2 Day, 3 Evening, 4 Night */
     int type_effectiveness;
+    int fast_forward;       /* runtime toggle (starts 0 on launch) */
+    int fast_forward_speed; /* 0=2x, 1=3x, 2=4x, 3=Max */
+    int shiny_odds;         /* 0=1/8192, 1=1/1024, 2=1/256, 3=1/64, 4=100% */
 
     /* Save */
     char save_dir[1024];

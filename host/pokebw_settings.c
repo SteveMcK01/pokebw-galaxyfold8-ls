@@ -109,6 +109,8 @@ static void parse_ini_line(const char *section, const char *key, const char *val
         else if (strcmp(key, "season_override") == 0) g_settings.season_override = clamp_int(atoi(val), 0, 4);
         else if (strcmp(key, "clock_override") == 0) g_settings.clock_override = clamp_int(atoi(val), 0, 4);
         else if (strcmp(key, "type_effectiveness") == 0) g_settings.type_effectiveness = parse_bool(val);
+        else if (strcmp(key, "fast_forward_speed") == 0) g_settings.fast_forward_speed = clamp_int(atoi(val), 0, 3);
+        else if (strcmp(key, "shiny_odds") == 0) g_settings.shiny_odds = clamp_int(atoi(val), 0, 4);
     } else if (strcmp(section, "Save") == 0) {
         if (strcmp(key, "save_dir") == 0) {
             snprintf(g_settings.save_dir, sizeof(g_settings.save_dir), "%s", val);
@@ -222,6 +224,9 @@ int host_settings_get_by_id(int id)
     case POKEBW_SET_SEASON_OVERRIDE:      return s->season_override;
     case POKEBW_SET_CLOCK_OVERRIDE:       return s->clock_override;
     case POKEBW_SET_TYPE_EFFECTIVENESS:   return s->type_effectiveness;
+    case POKEBW_SET_FAST_FORWARD:         return s->fast_forward ? 1 : 0;
+    case POKEBW_SET_FAST_FORWARD_SPEED:   return clamp_int(s->fast_forward_speed, 0, 3);
+    case POKEBW_SET_SHINY_ODDS:           return clamp_int(s->shiny_odds, 0, 4);
     default:                              return 0;
     }
 }
@@ -280,7 +285,9 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             "instant_text = %d\n"
             "season_override = %d\n"
             "clock_override = %d\n"
-            "type_effectiveness = %d\n\n"
+            "type_effectiveness = %d\n"
+            "fast_forward_speed = %d\n"
+            "shiny_odds = %d\n\n"
             "[Save]\n"
             "save_dir = %s\n",
             s->touch_visible ? 1 : 0,
@@ -304,6 +311,8 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             clamp_int(s->season_override, 0, 4),
             clamp_int(s->clock_override, 0, 4),
             s->type_effectiveness ? 1 : 0,
+            clamp_int(s->fast_forward_speed, 0, 3),
+            clamp_int(s->shiny_odds, 0, 4),
             s->save_dir);
     if (ferror(f) || fclose(f) != 0) {
         return -1;

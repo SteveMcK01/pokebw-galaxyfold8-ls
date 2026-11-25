@@ -27,6 +27,7 @@
 #include "plat_thread.h"
 #include "prof.h"
 #include "settings.h"
+#include "pokebw_settings_ids.h"
 #include "ui.h"
 
 #define MAX_PADS 8
@@ -697,6 +698,14 @@ int eidos_platform_fast_forward(const EidosPlatform *p)
             return keys[SDL_SCANCODE_LSHIFT] ? EIDOS_FAST_FORWARD_MAX
                  : keys[SDL_SCANCODE_F] ? EIDOS_FAST_FORWARD_X4
                                         : EIDOS_FAST_FORWARD;
+        }
+    }
+    if (bw_pokebw_setting(POKEBW_SET_FAST_FORWARD) != 0) {
+        switch (bw_pokebw_setting(POKEBW_SET_FAST_FORWARD_SPEED)) {
+        case 1:  return 3;
+        case 2:  return EIDOS_FAST_FORWARD_X4;
+        case 3:  return EIDOS_FAST_FORWARD_MAX;
+        default: return EIDOS_FAST_FORWARD;
         }
     }
     /* EIDOS_FAST_UNTIL_BATTLE (the spot editor's Preview in game): as fast

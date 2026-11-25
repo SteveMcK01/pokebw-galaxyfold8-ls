@@ -453,6 +453,10 @@ static void follower_sync_mmdl(
     if (ov010_FLDMMDL_SetStatusBitVanish != NULL) {
         ov010_FLDMMDL_SetStatusBitVanish(mmdl, vanish ? 1 : 0);
     }
+    if (ov010_FLDMMDL_SetStatusBitFellowHit != NULL) {
+        /* 0 sets MMDL_STABIT_FELLOW_HIT_OFF so the player can step into and swap past the follower. */
+        ov010_FLDMMDL_SetStatusBitFellowHit(mmdl, 0);
+    }
     if (ov010_FLDMMDL_SetMoveBitShadowVanish != NULL) {
         ov010_FLDMMDL_SetMoveBitShadowVanish(mmdl, vanish ? 1 : 0);
     }
@@ -539,7 +543,8 @@ static void follower_spawn(
             (unsigned)pokebw_ow_sprite_mdl_size(objCode), (unsigned)zoneId);
 
     if (ov010_FLDMMDL_SetStatusBitFellowHit != NULL) {
-        ov010_FLDMMDL_SetStatusBitFellowHit(mmdl, 1);
+        /* 0 sets MMDL_STABIT_FELLOW_HIT_OFF so the follower never blocks 1-tile corridors. */
+        ov010_FLDMMDL_SetStatusBitFellowHit(mmdl, 0);
     }
     if (ov010_FLDMMDL_SetStatusBitHeightGetOff != NULL) {
         ov010_FLDMMDL_SetStatusBitHeightGetOff(mmdl, 1);

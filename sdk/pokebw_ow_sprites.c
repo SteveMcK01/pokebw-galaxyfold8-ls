@@ -199,12 +199,16 @@ static uint8_t *load_bwsp_pack(uint32_t *out_size)
 
     if (env != NULL && env[0] != '\0') {
         if ((buf = read_file_bytes(env, out_size)) != NULL) {
+            fprintf(stderr, "eidos: ow_sprites: loaded %s (%u bytes)\n",
+                    env, out_size != NULL ? (unsigned)*out_size : 0u);
             return buf;
         }
     }
     if (save_dir != NULL && save_dir[0] != '\0') {
         snprintf(path, sizeof(path), "%s/pokebw_ow_sprites.bwsp", save_dir);
         if ((buf = read_file_bytes(path, out_size)) != NULL) {
+            fprintf(stderr, "eidos: ow_sprites: loaded %s (%u bytes)\n",
+                    path, out_size != NULL ? (unsigned)*out_size : 0u);
             return buf;
         }
     }
@@ -215,14 +219,24 @@ static uint8_t *load_bwsp_pack(uint32_t *out_size)
             app_home[0] != '\0') {
             snprintf(path, sizeof(path), "%s/pokebw_ow_sprites.bwsp", app_home);
             if ((buf = read_file_bytes(path, out_size)) != NULL) {
+                fprintf(stderr, "eidos: ow_sprites: loaded %s (%u bytes)\n",
+                        path, out_size != NULL ? (unsigned)*out_size : 0u);
                 return buf;
             }
         }
     }
 #endif
     if (data_root != NULL && data_root[0] != '\0') {
+        snprintf(path, sizeof(path), "%s/../pokebw_ow_sprites.bwsp", data_root);
+        if ((buf = read_file_bytes(path, out_size)) != NULL) {
+            fprintf(stderr, "eidos: ow_sprites: loaded %s (%u bytes)\n",
+                    path, out_size != NULL ? (unsigned)*out_size : 0u);
+            return buf;
+        }
         snprintf(path, sizeof(path), "%s/../../pokebw_ow_sprites.bwsp", data_root);
         if ((buf = read_file_bytes(path, out_size)) != NULL) {
+            fprintf(stderr, "eidos: ow_sprites: loaded %s (%u bytes)\n",
+                    path, out_size != NULL ? (unsigned)*out_size : 0u);
             return buf;
         }
     }

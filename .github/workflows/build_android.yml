@@ -28,6 +28,7 @@ jobs:
       EIDOS_MBEDTLS_CACHE: ${{ github.workspace }}/.cache/mbedtls
       EIDOS_WASM_CACHE: ${{ github.workspace }}/.cache/wasm
       EIDOS_IMGUI_CACHE: ${{ github.workspace }}/.cache/imgui
+      EIDOS_OW_SPRITES_CACHE: ${{ github.workspace }}/.cache/ow_sprites
     steps:
       - name: Cache apt packages
         uses: actions/cache@v4
@@ -69,7 +70,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: deps-android-${{ hashFiles('tools/fetch_sdl.py', 'tools/fetch_wamr.py', 'tools/fetch_mbedtls.py', 'tools/fetch_wasm.py', 'tools/fetch_imgui.py') }}
+          key: deps-android-${{ hashFiles('tools/fetch_sdl.py', 'tools/fetch_wamr.py', 'tools/fetch_mbedtls.py', 'tools/fetch_wasm.py', 'tools/fetch_imgui.py', 'tools/fetch_ow_sprites.py', 'tools/pack_ow_sprites.py') }}
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -115,6 +116,15 @@ jobs:
               -DALETHEIA_ROOT="$PWD/aletheia" \
               -DBW_DATA_ROOT="$PWD/no-game-data/extract/data" 2>&1 | tee build.log
             cmake --build build-wasm --target eidos_boot --parallel 4 2>&1 | tee -a build.log
+          )
+
+      - name: Fetch and bundle 649-species overworld sprite pack
+        run: |
+          (
+            python3 tools/pack_ow_sprites.py self-test
+            python3 tools/fetch_ow_sprites.py --output android/app/src/main/assets/pokebw_ow_sprites.bwsp
+            python3 tools/pack_ow_sprites.py inspect android/app/src/main/assets/pokebw_ow_sprites.bwsp
+            ls -lh android/app/src/main/assets/pokebw_ow_sprites.bwsp
           )
 
       - name: Stage 2 - Build arm64-v8a APK

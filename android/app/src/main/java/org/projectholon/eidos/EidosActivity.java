@@ -3,6 +3,7 @@ package org.projectholon.eidos;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
@@ -17,8 +18,10 @@ import org.libsdl.app.SDLActivity;
 import org.libsdl.app.SDLSurface;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 /*
  * eidos on Android: SDL's activity, with one change to what the game is
@@ -67,22 +70,51 @@ public class EidosActivity extends SDLActivity {
     private void extractBundledSpritePack() {
         final String name = "pokebw_ow_sprites.bwsp";
         File dst = new File(getFilesDir(), name);
+        File stampFile = new File(getFilesDir(), name + ".stamp");
+        String expectedStamp = null;
+        try {
+            PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+            long vcode = Build.VERSION.SDK_INT >= 28 ? pi.getLongVersionCode() : pi.versionCode;
+            expectedStamp = pi.lastUpdateTime + ":" + vcode;
+            if (dst.exists() && dst.length() > 16 && stampFile.exists()) {
+                byte[] sb = new byte[128];
+                try (FileInputStream sin = new FileInputStream(stampFile)) {
+                    int sn = sin.read(sb);
+                    if (sn > 0) {
+                        String cur = new String(sb, 0, sn, StandardCharsets.UTF_8).trim();
+                        if (expectedStamp.equals(cur)) {
+                            return;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            expectedStamp = null;
+        }
         try (InputStream in = getAssets().open(name)) {
             File tmp = new File(getFilesDir(), name + ".tmp");
+            long total = 0;
             try (FileOutputStream out = new FileOutputStream(tmp)) {
                 byte[] buf = new byte[16384];
                 int n;
-                long total = 0;
                 while ((n = in.read(buf)) > 0) {
                     out.write(buf, 0, n);
                     total += n;
                 }
-                if (dst.exists() && dst.length() == total) {
-                    tmp.delete();
-                    return;
+            }
+            if (total <= 16) {
+                tmp.delete();
+                return;
+            }
+            if (dst.exists()) {
+                dst.delete();
+            }
+            if (tmp.renameTo(dst) && expectedStamp != null) {
+                try (FileOutputStream sout = new FileOutputStream(stampFile)) {
+                    sout.write(expectedStamp.getBytes(StandardCharsets.UTF_8));
+                } catch (Exception ignored) {
                 }
             }
-            tmp.renameTo(dst);
         } catch (Exception ignored) {
             /* No bundled .bwsp pack in APK assets; runtime falls back to ROM synthesis. */
         }

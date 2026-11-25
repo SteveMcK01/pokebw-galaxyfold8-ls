@@ -223,33 +223,10 @@ def validate_btx0(blob: bytes) -> Tuple[int, int, int]:
     return w, h, fmt
 
 
-def _load_png_pure_python(path: pathlib.Path) -> Tuple[int, int, List[Tuple[int, int, int, int]]]:
-    """Minimal RGBA/RGB/Indexed PNG fallback when Pillow is not installed."""
-    raw = path.read_bytes()
-    if raw[:8] != b"\x89PNG\r\n\x1a\n":
-        raise ValueError(f"{path}: not a PNG file")
-    pos = 8
-    w = h = bit_depth = color_type = 0
-    idat = bytearray()
-    while pos + 8 <= len(raw):
-        clen = struct.unpack_from(">I", raw, pos)[0]
-        ctype = raw[pos + 4 : pos + 8]
-        cdata = raw[pos + 8 : pos + 8 + clen]
-        pos += 12 + clen
-        if ctype == b"IHDR":
-            w, h, bit_depth, color_type = struct.unpack_from(">IIBB", cdata, 0)
-        elif ctype == b"IDAT":
-            idat += cdata
-        elif ctype == b"IEND":
-            break
-    if bit_depth != 8 or color_type not in (2, 6):
-        raise RuntimeError(
-            f"{path}: pure-Python PNG fallback supports 8-bit RGB/RGBA only; install Pillow (`pip install pillow`) for full PNG support"
-        )
-    bpp = 4 if color_type == 6 else 3
-    stride = w * bpp
-    decomp = zlib.decompress(bytes(idat))
-    out: List[Tuple[int, int, int, int]] = []
+def _unfilter_scanlines(
+    decomp: bytes, w: int, h: int, stride: int, bpp_filter: int, path: pathlib.Path
+) -> List[bytes]:
+    rows: List[bytes] = []
     prev = bytearray(stride)
     idx = 0
     for _ in range(h):
@@ -258,29 +235,158 @@ def _load_png_pure_python(path: pathlib.Path) -> Tuple[int, int, List[Tuple[int,
         row = bytearray(decomp[idx : idx + stride])
         idx += stride
         if flt == 1:
-            for x in range(bpp, stride):
-                row[x] = (row[x] + row[x - bpp]) & 0xFF
+            for x in range(bpp_filter, stride):
+                row[x] = (row[x] + row[x - bpp_filter]) & 0xFF
         elif flt == 2:
             for x in range(stride):
                 row[x] = (row[x] + prev[x]) & 0xFF
         elif flt == 3:
             for x in range(stride):
-                a = row[x - bpp] if x >= bpp else 0
+                a = row[x - bpp_filter] if x >= bpp_filter else 0
                 row[x] = (row[x] + ((a + prev[x]) >> 1)) & 0xFF
         elif flt == 4:
             for x in range(stride):
-                a = row[x - bpp] if x >= bpp else 0
+                a = row[x - bpp_filter] if x >= bpp_filter else 0
                 b = prev[x]
-                c = prev[x - bpp] if x >= bpp else 0
+                c = prev[x - bpp_filter] if x >= bpp_filter else 0
                 p = a + b - c
                 pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
                 pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
                 row[x] = (row[x] + pr) & 0xFF
         elif flt != 0:
             raise ValueError(f"{path}: unsupported PNG filter {flt}")
-        for x in range(0, stride, bpp):
-            out.append((row[x], row[x + 1], row[x + 2], row[x + 3] if bpp == 4 else 255))
+        rows.append(bytes(row))
         prev = row
+    return rows
+
+
+def _parse_png_raw(
+    path: pathlib.Path,
+) -> Tuple[int, int, int, int, List[bytes], List[Tuple[int, int, int, int]]]:
+    raw = path.read_bytes()
+    if raw[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError(f"{path}: not a PNG file")
+    pos = 8
+    w = h = bit_depth = color_type = 0
+    interlace = 0
+    idat = bytearray()
+    plte = b""
+    trns = b""
+    while pos + 8 <= len(raw):
+        clen = struct.unpack_from(">I", raw, pos)[0]
+        ctype = raw[pos + 4 : pos + 8]
+        cdata = raw[pos + 8 : pos + 8 + clen]
+        pos += 12 + clen
+        if ctype == b"IHDR":
+            w, h, bit_depth, color_type, _, _, interlace = struct.unpack_from(">IIBBBBB", cdata, 0)
+        elif ctype == b"PLTE":
+            plte = cdata
+        elif ctype == b"tRNS":
+            trns = cdata
+        elif ctype == b"IDAT":
+            idat += cdata
+        elif ctype == b"IEND":
+            break
+    if interlace != 0:
+        raise RuntimeError(f"{path}: interlaced PNG is not supported cleanly without Pillow")
+    if color_type == 3:
+        if bit_depth not in (1, 2, 4, 8):
+            raise RuntimeError(f"{path}: unsupported indexed PNG bit depth {bit_depth}")
+        stride = (w * bit_depth + 7) // 8
+        bpp_filter = 1
+    elif bit_depth == 8 and color_type in (2, 6):
+        bpp_filter = 4 if color_type == 6 else 3
+        stride = w * bpp_filter
+    else:
+        raise RuntimeError(
+            f"{path}: pure-Python PNG decoder supports 8-bit RGB/RGBA or 1/2/4/8-bit indexed PNG (got depth={bit_depth}, color_type={color_type})"
+        )
+    decomp = zlib.decompress(bytes(idat))
+    rows = _unfilter_scanlines(decomp, w, h, stride, bpp_filter, path)
+    pal_rgba: List[Tuple[int, int, int, int]] = []
+    for i in range(0, len(plte) - 2, 3):
+        idx_c = i // 3
+        alpha = trns[idx_c] if idx_c < len(trns) else 255
+        pal_rgba.append((plte[i], plte[i + 1], plte[i + 2], alpha))
+    return w, h, bit_depth, color_type, rows, pal_rgba
+
+
+def _unpack_indexed_rows(
+    w: int, bit_depth: int, rows: List[bytes]
+) -> List[int]:
+    indices: List[int] = []
+    if bit_depth == 8:
+        for row in rows:
+            indices.extend(row[:w])
+    elif bit_depth == 4:
+        for row in rows:
+            for x in range(w):
+                b = row[x >> 1]
+                indices.append((b >> 4) & 0xF if (x & 1) == 0 else b & 0xF)
+    elif bit_depth == 2:
+        for row in rows:
+            for x in range(w):
+                b = row[x >> 2]
+                shift = 6 - 2 * (x & 3)
+                indices.append((b >> shift) & 0x3)
+    elif bit_depth == 1:
+        for row in rows:
+            for x in range(w):
+                b = row[x >> 3]
+                indices.append((b >> (7 - (x & 7))) & 0x1)
+    return indices
+
+
+def load_indexed_png(
+    path: pathlib.Path,
+) -> Tuple[int, int, List[int], List[Tuple[int, int, int, int]]]:
+    """Load an indexed PNG cleanly (1/2/4/8-bit color_type=3) preserving exact palette indices."""
+    w, h, bit_depth, color_type, rows, pal_rgba = _parse_png_raw(path)
+    if color_type != 3:
+        raise ValueError(f"{path}: PNG is not indexed (color_type={color_type})")
+    indices = _unpack_indexed_rows(w, bit_depth, rows)
+    return w, h, indices, pal_rgba
+
+
+def parse_jasc_pal(path: pathlib.Path) -> List[int]:
+    """Parse a JASC-PAL 16-color palette into BGR555 u16 colors (index 0 forced transparent)."""
+    lines = [
+        ln.strip()
+        for ln in path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if ln.strip()
+    ]
+    if len(lines) < 3 or lines[0] != "JASC-PAL":
+        raise ValueError(f"{path}: not a valid JASC-PAL file")
+    count = int(lines[2])
+    pal: List[int] = []
+    for ln in lines[3 : 3 + min(16, count)]:
+        parts = ln.split()
+        if len(parts) < 3:
+            raise ValueError(f"{path}: malformed palette entry {ln!r}")
+        r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
+        pal.append(rgba_to_bgr555(r, g, b))
+    while len(pal) < 16:
+        pal.append(0)
+    pal[0] = 0
+    return pal[:16]
+
+
+def _load_png_pure_python(path: pathlib.Path) -> Tuple[int, int, List[Tuple[int, int, int, int]]]:
+    """Minimal RGBA/RGB/Indexed PNG fallback when Pillow is not installed."""
+    w, h, bit_depth, color_type, rows, pal_rgba = _parse_png_raw(path)
+    out: List[Tuple[int, int, int, int]] = []
+    if color_type == 3:
+        for idx_p in _unpack_indexed_rows(w, bit_depth, rows):
+            if idx_p < len(pal_rgba):
+                r, g, b, a = pal_rgba[idx_p]
+                out.append((r, g, b, 0 if idx_p == 0 and a == 255 else a))
+            else:
+                out.append((0, 0, 0, 0))
+        return w, h, out
+    bpp = 4 if color_type == 6 else 3
+    for row in rows:
+        for x in range(0, w * bpp, bpp):
+            out.append((row[x], row[x + 1], row[x + 2], row[x + 3] if bpp == 4 else 255))
     return w, h, out
 
 
@@ -294,6 +400,41 @@ def load_rgba(path: pathlib.Path) -> Tuple[int, int, List[Tuple[int, int, int, i
             return w, h, list(rgba.getdata())
     except ImportError:
         return _load_png_pure_python(path)
+
+
+def _pad_frames_strip(
+    cw: int, ch: int, frames: List[List[object]], empty_val: object
+) -> Tuple[int, int, List[object]]:
+    """Pad or center-crop 8 square/rectangular cells into a 16/32/64x(8*target) vertical strip."""
+    target = 16 if cw <= 16 and ch <= 16 else (32 if cw <= 32 and ch <= 32 else 64)
+    strip: List[object] = []
+    for fr in frames:
+        if cw == target and ch == target:
+            strip.extend(fr)
+        else:
+            pad_x = (target - cw) // 2
+            pad_y = target - ch
+            for ty in range(target):
+                sy = ty - pad_y
+                for tx in range(target):
+                    sx = tx - pad_x
+                    if 0 <= sx < cw and 0 <= sy < ch:
+                        strip.append(fr[sy * cw + sx])
+                    else:
+                        strip.append(empty_val)
+    return target, target * 8, strip
+
+
+def _crop_cell(
+    pixels: List[object], w: int, h: int, cx: int, cy: int, cw: int, ch: int, hflip: bool = False
+) -> List[object]:
+    out: List[object] = []
+    for y in range(cy * ch, (cy + 1) * ch):
+        row = pixels[y * w + cx * cw : y * w + (cx + 1) * cw]
+        if hflip:
+            row = row[::-1]
+        out.extend(row)
+    return out
 
 
 def extract_8_frames(
@@ -315,53 +456,98 @@ def extract_8_frames(
         else:
             raise ValueError(f"Cannot auto-detect sprite sheet layout for {w}x{h}")
 
-    def crop_cell(cx: int, cy: int, cols: int, rows: int) -> Tuple[int, int, List[Tuple[int, int, int, int]]]:
-        cw, ch = w // cols, h // rows
-        out = []
-        for y in range(cy * ch, (cy + 1) * ch):
-            row_start = y * w + cx * cw
-            out.extend(pixels[row_start : row_start + cw])
-        return cw, ch, out
-
     if layout == "1x8":
         cw, ch = w, h // 8
-        frames = [crop_cell(0, i, 1, 8)[2] for i in range(8)]
+        frames = [_crop_cell(pixels, w, h, 0, i, cw, ch) for i in range(8)]
     elif layout == "4x4":
         # RPGM / PokeMMO / TooManyLuigis: rows Down(0), Left(1), Right(2), Up(3); cols 0,1 = stand, step
         cw, ch = w // 4, h // 4
         coords = [(0, 3), (1, 3), (0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)]
-        frames = [crop_cell(cx, cy, 4, 4)[2] for cx, cy in coords]
+        frames = [_crop_cell(pixels, w, h, cx, cy, cw, ch) for cx, cy in coords]
     elif layout == "4x2":
-        # 2 cols x 4 rows: Down, Up, Left, Right OR Up, Down, Left, Right -> use standard (D, L, R, U) mapped cleanly
         cw, ch = w // 2, h // 4
         coords = [(0, 3), (1, 3), (0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)]
-        frames = [crop_cell(cx, cy, 2, 4)[2] for cx, cy in coords]
+        frames = [_crop_cell(pixels, w, h, cx, cy, cw, ch) for cx, cy in coords]
     elif layout == "2x4":
-        # 4 cols x 2 rows (each direction 2 frames)
         cw, ch = w // 4, h // 2
         coords = [(3, 0), (3, 1), (0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]
-        frames = [crop_cell(cx, cy, 4, 2)[2] for cx, cy in coords]
+        frames = [_crop_cell(pixels, w, h, cx, cy, cw, ch) for cx, cy in coords]
     else:
         raise ValueError(f"Unknown layout: {layout}")
 
-    # Scale/pad cell to DS-supported square billboard cell size (16, 32, or 64)
-    target = 16 if cw <= 16 and ch <= 16 else (32 if cw <= 32 and ch <= 32 else 64)
-    strip: List[Tuple[int, int, int, int]] = []
-    for fr in frames:
-        if cw == target and ch == target:
-            strip.extend(fr)
+    sw, sh, strip = _pad_frames_strip(cw, ch, frames, (0, 0, 0, 0))
+    return sw, sh, strip  # type: ignore[return-value]
+
+
+def encode_pokeemerald_overworld(
+    png_path: pathlib.Path, pal_path: Optional[pathlib.Path] = None
+) -> Tuple[bytes, int]:
+    """
+    Encode a rh-hideout/pokeemerald-expansion horizontal overworld strip
+    (6-frame symmetric / 8-frame asymmetric / 9-frame NPC / 4 / 2 / 1 frames)
+    and optional JASC-PAL palette into a Gen 5 animId=14 BTX0 texture.
+    """
+    POKEEMERALD_FRAME_MAP: Dict[int, List[Tuple[int, bool]]] = {
+        6: [(2, False), (3, False), (0, False), (1, False), (4, False), (5, False), (4, True), (5, True)],
+        8: [(2, False), (3, False), (0, False), (1, False), (4, False), (5, False), (6, False), (7, False)],
+        9: [(1, False), (5, False), (0, False), (3, False), (2, False), (7, False), (2, True), (7, True)],
+        4: [(1, False), (1, False), (0, False), (0, False), (2, False), (2, False), (3, False), (3, False)],
+        2: [(0, False), (1, False), (0, False), (1, False), (0, False), (1, False), (0, True), (1, True)],
+        1: [(0, False)] * 8,
+    }
+
+    indexed_ok = False
+    w = h = 0
+    indices: List[int] = []
+    pal_rgba: List[Tuple[int, int, int, int]] = []
+    try:
+        w, h, indices, pal_rgba = load_indexed_png(png_path)
+        if max(indices, default=0) < 16:
+            indexed_ok = True
+    except (ValueError, RuntimeError):
+        indexed_ok = False
+
+    if indexed_ok:
+        ch = h
+        if w % ch != 0:
+            raise ValueError(f"{png_path}: unexpected pokeemerald strip size {w}x{h}")
+        cw = ch
+        n_frames = w // cw
+        if n_frames not in POKEEMERALD_FRAME_MAP:
+            raise ValueError(f"{png_path}: unsupported horizontal frame count {n_frames} ({w}x{h})")
+        if pal_path is not None and pal_path.is_file():
+            pal_bgr = parse_jasc_pal(pal_path)
         else:
-            pad_x = max(0, (target - cw) // 2)
-            pad_y = max(0, target - ch)
-            for ty in range(target):
-                sy = ty - pad_y
-                for tx in range(target):
-                    sx = tx - pad_x
-                    if 0 <= sx < cw and 0 <= sy < ch:
-                        strip.append(fr[sy * cw + sx])
-                    else:
-                        strip.append((0, 0, 0, 0))
-    return target, target * 8, strip
+            pal_bgr = [rgba_to_bgr555(r, g, b) for r, g, b, _ in pal_rgba[:16]]
+            while len(pal_bgr) < 16:
+                pal_bgr.append(0)
+            pal_bgr[0] = 0
+        frames = [
+            _crop_cell(indices, w, h, fidx, 0, cw, ch, hflip=hflip)
+            for fidx, hflip in POKEEMERALD_FRAME_MAP[n_frames]
+        ]
+        sw, sh, strip = _pad_frames_strip(cw, ch, frames, 0)
+        btx = build_single_btx0(sw, sh, strip, pal_bgr)  # type: ignore[arg-type]
+    else:
+        w, h, pixels = load_rgba(png_path)
+        ch = h
+        if w % ch != 0:
+            raise ValueError(f"{png_path}: unexpected pokeemerald strip size {w}x{h}")
+        cw = ch
+        n_frames = w // cw
+        if n_frames not in POKEEMERALD_FRAME_MAP:
+            raise ValueError(f"{png_path}: unsupported horizontal frame count {n_frames} ({w}x{h})")
+        frames_px = [
+            _crop_cell(pixels, w, h, fidx, 0, cw, ch, hflip=hflip)
+            for fidx, hflip in POKEEMERALD_FRAME_MAP[n_frames]
+        ]
+        sw, sh, strip_px = _pad_frames_strip(cw, ch, frames_px, (0, 0, 0, 0))
+        pal_bgr, qidx = quantize_palette_16(strip_px)  # type: ignore[arg-type]
+        btx = build_single_btx0(sw, sh, qidx, pal_bgr)
+
+    validate_btx0(btx)
+    mdl_size = 1 if sw == 16 else (2 if sw == 64 else 0)
+    return btx, mdl_size
 
 
 def encode_png_sheet(
@@ -385,6 +571,51 @@ def parse_sprite_filename(path: pathlib.Path, shiny_hint: bool) -> Optional[Tupl
     if species < 1 or species > 649:
         return None
     return species, form, shiny
+
+
+def write_bwsp(
+    entries: List[Tuple[int, int, int, bytes, int, int, int, int, int, int]],
+    output_bwsp: pathlib.Path,
+) -> int:
+    """
+    Write sorted (species, form, shiny) BWSP entries to `output_bwsp`.
+    Each tuple: (species, form, shiny, btx, mdl_size, anim_id, off_x, off_y, off_z, shadow).
+    """
+    sorted_entries = sorted(entries, key=lambda e: (e[0], e[1], e[2]))
+    header_size = 16
+    entry_size = 20
+    data_cursor = header_size + len(sorted_entries) * entry_size
+    entries_buf = bytearray()
+    blobs_buf = bytearray()
+
+    for species, form, shiny, btx, mdl_size, anim_id, off_x, off_y, off_z, shadow in sorted_entries:
+        pad = (-len(blobs_buf)) & 3
+        blobs_buf += b"\x00" * pad
+        data_off = data_cursor + len(blobs_buf)
+        blobs_buf += btx
+
+        entries_buf += struct.pack(
+            "<HBBBBbbbBHII",
+            species,
+            form,
+            shiny,
+            mdl_size,
+            anim_id,
+            off_x,
+            off_y,
+            off_z,
+            shadow,
+            0,
+            data_off,
+            len(btx),
+        )
+
+    output_bwsp.parent.mkdir(parents=True, exist_ok=True)
+    header = struct.pack("<4sHHII", BWSP_MAGIC, BWSP_VERSION, 0, len(sorted_entries), 0)
+    tmp = output_bwsp.with_name(output_bwsp.name + ".tmp")
+    tmp.write_bytes(header + entries_buf + blobs_buf)
+    os.replace(tmp, output_bwsp)
+    return len(sorted_entries)
 
 
 def pack_directory(
@@ -417,47 +648,26 @@ def pack_directory(
             mdl_size = 1 if w <= 16 else (2 if w >= 64 else 0)
         items[key] = (btx, mdl_size)
 
-    sorted_keys = sorted(items.keys())
-    header_size = 16
-    entry_size = 20
-    data_cursor = header_size + len(sorted_keys) * entry_size
-    entries_buf = bytearray()
-    blobs_buf = bytearray()
-
-    for species, form, shiny in sorted_keys:
+    records: List[Tuple[int, int, int, bytes, int, int, int, int, int, int]] = []
+    for species, form, shiny in sorted(items.keys()):
         btx, mdl_size = items[(species, form, shiny)]
         meta = offsets.get(f"{species}_f{form}", offsets.get(str(species), {}))
-        mdl_size = int(meta.get("mdl_size", mdl_size))
-        anim_id = int(meta.get("anim_id", ANIM_ID_DEFAULT))
-        off_x = int(meta.get("off_x", 0))
-        off_y = int(meta.get("off_y", 0))
-        off_z = int(meta.get("off_z", 0))
-        shadow = int(meta.get("shadow", 1))
-
-        pad = (-len(blobs_buf)) & 3
-        blobs_buf += b"\x00" * pad
-        data_off = data_cursor + len(blobs_buf)
-        blobs_buf += btx
-
-        entries_buf += struct.pack(
-            "<HBBBBbbbBHII",
-            species,
-            form,
-            shiny,
-            mdl_size,
-            anim_id,
-            off_x,
-            off_y,
-            off_z,
-            shadow,
-            0,
-            data_off,
-            len(btx),
+        records.append(
+            (
+                species,
+                form,
+                shiny,
+                btx,
+                int(meta.get("mdl_size", mdl_size)),
+                int(meta.get("anim_id", ANIM_ID_DEFAULT)),
+                int(meta.get("off_x", 0)),
+                int(meta.get("off_y", 0)),
+                int(meta.get("off_z", 0)),
+                int(meta.get("shadow", 1)),
+            )
         )
 
-    output_bwsp.parent.mkdir(parents=True, exist_ok=True)
-    header = struct.pack("<4sHHII", BWSP_MAGIC, BWSP_VERSION, 0, len(sorted_keys), 0)
-    output_bwsp.write_bytes(header + entries_buf + blobs_buf)
+    packed = write_bwsp(records, output_bwsp)
 
     if mod_dir is not None:
         manifest = mod_dir / "eidos_mod.txt"
@@ -465,11 +675,11 @@ def pack_directory(
         manifest.write_text("name = PokeBW 649 Overworld Sprites\norder = 5\n", encoding="utf-8")
         (mod_dir / "pokebw_ow_sprites.bwsp").write_bytes(output_bwsp.read_bytes())
 
-    print(f"Packed {len(sorted_keys)} sprites into {output_bwsp} ({output_bwsp.stat().st_size} bytes)")
-    return len(sorted_keys)
+    print(f"Packed {packed} sprites into {output_bwsp} ({output_bwsp.stat().st_size} bytes)")
+    return packed
 
 
-def inspect_bwsp(path: pathlib.Path) -> None:
+def inspect_bwsp(path: pathlib.Path) -> Tuple[int, int, int, int]:
     raw = path.read_bytes()
     magic, ver, _, count, _ = struct.unpack_from("<4sHHII", raw, 0)
     if magic != BWSP_MAGIC or ver != BWSP_VERSION:
@@ -487,9 +697,36 @@ def inspect_bwsp(path: pathlib.Path) -> None:
         else:
             normal += 1
     print(f"{path}: v{ver}, total={count} (normal={normal}, shiny={shiny}, forms={forms}), size={len(raw)} bytes")
+    return count, normal, shiny, forms
+
+
+def _write_test_indexed_png(path: pathlib.Path, w: int, h: int, indices: List[int], plte: bytes) -> None:
+    def chunk(ctype: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(ctype + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + ctype + data + struct.pack(">I", crc)
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 4, 3, 0, 0, 0)
+    raw_rows = bytearray()
+    stride = (w + 1) // 2
+    for y in range(h):
+        raw_rows.append(0)
+        row = bytearray(stride)
+        for x in range(w):
+            v = indices[y * w + x] & 0xF
+            if (x & 1) == 0:
+                row[x >> 1] |= v << 4
+            else:
+                row[x >> 1] |= v
+        raw_rows.extend(row)
+    idat = zlib.compress(bytes(raw_rows))
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"PLTE", plte) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+    )
 
 
 def run_self_test() -> int:
+    import tempfile
+
     # 1. Verify 32x256 and 64x512 BTX0 structural round-trip
     for cw in (16, 32, 64):
         ch = cw * 8
@@ -509,7 +746,42 @@ def run_self_test() -> int:
     btx = build_single_btx0(sw, sh, qidx, pal_bgr)
     assert len(btx) == 4292, f"Expected 4292 bytes for 32x256 BTX0, got {len(btx)}"
     validate_btx0(btx)
-    print("pack_ow_sprites.py self-test OK (16x128/32x256=4292B/64x512 BTX0 + 4x4 strip verified)")
+
+    # 3. Verify 4bpp indexed PNG + JASC-PAL + pokeemerald 6-frame (mirrored Right) & 8-frame (asym Right)
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        plte = bytes([i * 16, (255 - i * 8) & 0xFF, (i * 23) & 0xFF] for i in range(16)) if False else b"".join(
+            bytes([i * 16, (255 - i * 8) & 0xFF, (i * 23) & 0xFF]) for i in range(16)
+        )
+        pal_file = tmp / "overworld_normal.pal"
+        pal_lines = ["JASC-PAL", "0100", "16"] + [f"{i * 16} {(i * 8) & 255} {(255 - i * 12) & 255}" for i in range(16)]
+        pal_file.write_text("\n".join(pal_lines) + "\n", encoding="utf-8")
+        jasc_bgr = parse_jasc_pal(pal_file)
+        assert jasc_bgr[0] == 0 and len(jasc_bgr) == 16
+
+        # 6-frame 192x32 indexed PNG: put pixel value 7 at (frame4, x=1, y=5) -> Right0 must mirror to x=30, y=5
+        idx6 = [0] * (192 * 32)
+        idx6[5 * 192 + (4 * 32 + 1)] = 7
+        png6 = tmp / "ow6.png"
+        _write_test_indexed_png(png6, 192, 32, idx6, plte)
+        rw, rh, ridx, _ = load_indexed_png(png6)
+        assert (rw, rh) == (192, 32) and ridx[5 * 192 + (4 * 32 + 1)] == 7
+        btx6, mdl6 = encode_pokeemerald_overworld(png6, pal_file)
+        assert len(btx6) == 4292 and mdl6 == 0
+        # Right0 is frame 6 (y = 6*32 + 5 = 197), x = 30 -> nibble 0 (even pixel) at byte 197*16 + 15
+        tex_off = 0x14 + 0x90
+        assert (btx6[tex_off + (6 * 32 + 5) * 16 + 15] & 0xF) == 7
+
+        # 8-frame 256x32 asymmetric indexed PNG: put pixel value 9 at (frame6, x=2, y=4) -> Right0 has x=2 unflipped
+        idx8 = [0] * (256 * 32)
+        idx8[4 * 256 + (6 * 32 + 2)] = 9
+        png8 = tmp / "ow8.png"
+        _write_test_indexed_png(png8, 256, 32, idx8, plte)
+        btx8, mdl8 = encode_pokeemerald_overworld(png8, pal_file)
+        assert len(btx8) == 4292 and mdl8 == 0
+        assert (btx8[tex_off + (6 * 32 + 4) * 16 + 1] & 0xF) == 9
+
+    print("pack_ow_sprites.py self-test OK (4bpp indexed PNG, JASC-PAL, 6/8-frame pokeemerald + 4x4 BTX0 verified)")
     return 0
 
 

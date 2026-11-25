@@ -25,6 +25,7 @@ On OpenGL ES 3.0 (Android, iOS; host_gl_es, set by host/sdl.c from the
 context's version string) a few of them change: the shaders' first line
 "#version 330 core" becomes "#version 300 es" with default precisions,
 glMapBuffer maps through glMapBufferRange, glClearDepth is glClearDepthf,
+glDepthRange is glDepthRangef,
 glReadPixels of RGB bytes reads RGBA and keeps three of the four,
 and glColorMaski takes an extension's entry point or, without one, sets
 draw buffer 0 alone.  On iOS the window has no framebuffer 0: SDL's view
@@ -53,7 +54,7 @@ PROTO = re.compile(
     r'GLAPI\s+([\w\s\*]+?)\s*(?:GLAPIENTRY|APIENTRY)\s*(gl\w+)\s*\(([^;]*?)\)\s*;', re.S)
 
 SPECIAL = {'glVertexAttribPointer', 'glDrawElements', 'glReadPixels', 'glShaderSource',
-           'glMapBuffer', 'glUnmapBuffer', 'glClearDepth', 'glColorMaski',
+           'glMapBuffer', 'glUnmapBuffer', 'glClearDepth', 'glDepthRange', 'glColorMaski',
            'glBindFramebuffer', 'glGetIntegerv'}
 
 
@@ -337,6 +338,25 @@ void w2c_env_glClearDepth(struct w2c_env *env, f64 depth)
         fn = (void (APIENTRY *)(GLdouble))gl_proc("glClearDepth");
     }
     fn((GLdouble)depth);
+}
+
+void w2c_env_glDepthRange(struct w2c_env *env, f64 near_val, f64 far_val)
+{
+    static void (APIENTRY *fn)(GLdouble, GLdouble);
+    static void (APIENTRY *fnf)(GLfloat, GLfloat);
+
+    (void)env;
+    if (host_gl_es) {
+        if (fnf == NULL) {
+            fnf = (void (APIENTRY *)(GLfloat, GLfloat))gl_proc("glDepthRangef");
+        }
+        fnf((GLfloat)near_val, (GLfloat)far_val);
+        return;
+    }
+    if (fn == NULL) {
+        fn = (void (APIENTRY *)(GLdouble, GLdouble))gl_proc("glDepthRange");
+    }
+    fn((GLdouble)near_val, (GLdouble)far_val);
 }
 
 void w2c_env_glColorMaski(struct w2c_env *env, u32 buf, u32 r, u32 g, u32 b, u32 a)

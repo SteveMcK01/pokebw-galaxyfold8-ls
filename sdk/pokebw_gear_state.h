@@ -18,6 +18,38 @@ extern "C" {
 #define POKEBW_GEAR_HABITATS  7
 #define POKEBW_GEAR_MAX_ENC   12
 #define POKEBW_GEAR_FIELD_MOVES 8
+#define POKEBW_GEAR_MAX_BOXES   24
+#define POKEBW_GEAR_BAG_POCKETS 5
+
+/* Phase 4.6: Auto-Sorter request encoding (host <-> wasm). */
+enum {
+    POKEBW_SORT_KIND_PC_BOX     = 1, /* target = 0..23 or 0xFF (current box) */
+    POKEBW_SORT_KIND_PC_ALL     = 2, /* sort across all usable boxes */
+    POKEBW_SORT_KIND_BAG_POCKET = 3, /* target = 0..4 */
+    POKEBW_SORT_KIND_BAG_ALL    = 4  /* sort all 5 pockets */
+};
+
+enum {
+    POKEBW_SORT_PC_DEX   = 0,
+    POKEBW_SORT_PC_NAME  = 1,
+    POKEBW_SORT_PC_LEVEL = 2,
+    POKEBW_SORT_PC_TYPE  = 3,
+    POKEBW_SORT_PC_SHINY = 4
+};
+
+enum {
+    POKEBW_SORT_BAG_GAME = 0,
+    POKEBW_SORT_BAG_NAME = 1,
+    POKEBW_SORT_BAG_QTY  = 2,
+    POKEBW_SORT_BAG_ID   = 3
+};
+
+static inline uint32_t pokebw_sort_pack(int kind, int mode, int target)
+{
+    return ((uint32_t)(kind & 0xFu)) |
+           (((uint32_t)(mode & 0xFu)) << 4) |
+           (((uint32_t)(target & 0xFFu)) << 8);
+}
 
 typedef struct {
     uint8_t skill_index;  /* 0=Cut, 4=Fly, 1=Surf, 3=Strength, 2=Waterfall, 10=Dive, 5=Flash, 7=Dig */
@@ -81,6 +113,13 @@ typedef struct {
     PokebwGearMon       party[POKEBW_GEAR_MAX_PARTY];
     PokebwGearHabitat   habitats[POKEBW_GEAR_HABITATS];
     PokebwGearFieldMove field_moves[POKEBW_GEAR_FIELD_MOVES];
+    uint8_t             box_usable_count;
+    uint8_t             box_current;
+    uint8_t             pad_box[2];
+    uint8_t             box_counts[POKEBW_GEAR_MAX_BOXES];
+    uint16_t            bag_pocket_counts[POKEBW_GEAR_BAG_POCKETS];
+    uint16_t            pad_bag;
+    char                box_names[POKEBW_GEAR_MAX_BOXES][20];
 } PokebwGearSnapshot;
 
 #ifdef __cplusplus

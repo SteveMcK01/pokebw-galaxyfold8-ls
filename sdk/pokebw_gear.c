@@ -69,6 +69,8 @@ typedef char pokebw_gear_enc_size_check[
 
 extern void *GAMESYSTEM_GetGameData(const void *gameSystem) POKEBW_GEAR_WEAK;
 extern void *GAME_DATA_GetMyParty(const void *gd) POKEBW_GEAR_WEAK;
+extern void *GAME_DATA_GetMyItem(const void *gd) POKEBW_GEAR_WEAK;
+extern void *GAME_DATA_GetBoxManager(const void *gd) POKEBW_GEAR_WEAK;
 extern uint8_t GAME_DATA_GetSeason(const void *gd) POKEBW_GEAR_WEAK;
 extern uint32_t POKEPARTY_GetCount(const void *party) POKEBW_GEAR_WEAK;
 extern void *POKEPARTY_GetMember(void *party, uint32_t pos) POKEBW_GEAR_WEAK;
@@ -78,6 +80,11 @@ extern uint32_t ZONEDATA_GetPlaceNameId(uint32_t id) POKEBW_GEAR_WEAK;
 extern void *ZUKAN_SAVE_GetFromGameData(void *gd) POKEBW_GEAR_WEAK;
 extern uint32_t ZUKAN_SAVE_IsCaught(void *zukan, uint16_t species) POKEBW_GEAR_WEAK;
 extern uint32_t ZUKAN_SAVE_IsSeen(void *zukan, uint16_t species) POKEBW_GEAR_WEAK;
+extern void *BOX_SAVEDATA_GetHeader(void *boxMgr) POKEBW_GEAR_WEAK;
+extern uint32_t BOX_SAVEDATA_GetCurrentBox(void *boxMgr) POKEBW_GEAR_WEAK;
+extern uint8_t BOX_SAVEDATA_GetUsableBoxCount(void *boxMgr) POKEBW_GEAR_WEAK;
+extern int BOX_SAVEDATA_CountPokemonInBox(void *boxMgr, uint32_t box) POKEBW_GEAR_WEAK;
+extern uint32_t MYITEM_SAVEDATA_CountUsedSlotsInPocket(void *bag, uint32_t pocket) POKEBW_GEAR_WEAK;
 extern uint16_t ov021_FIELDMAP_GetZoneId(void *fieldMap) POKEBW_GEAR_WEAK;
 extern void pokebw_ow_sprites_stats(uint32_t *out_total, uint32_t *out_custom, uint32_t *out_forms) POKEBW_GEAR_WEAK;
 extern void pokebw_hm_shortcut_fill(void *gameSystem, void *fieldMap, PokebwGearFieldMove out[POKEBW_GEAR_FIELD_MOVES]) POKEBW_GEAR_WEAK;
@@ -87,12 +94,18 @@ static uint32_t g_enc_zone = 0xFFFFFFFFu;
 static int g_enc_season = -1;
 static int g_enc_valid = 0;
 static int g_enc_dirty = 0;
+static int g_force_refresh = 0;
 
 static uint32_t g_last_zone = 0xFFFFFFFFu;
 static uint32_t g_frame_counter = 0u;
 static uint32_t g_last_hm_usable = 0xFFFFFFFFu;
 static uint32_t g_last_hm_slots = 0xFFFFFFFFu;
 static PokebwGearSnapshot g_snap;
+
+void pokebw_gear_mark_dirty(void)
+{
+    g_force_refresh = 1;
+}
 
 /* ------------------------------------------------------------------ */
 /* Message bank reader (a/0/0/2: species 70, places 89, moves 203)    */
@@ -104,7 +117,7 @@ static struct {
     int member;
     uint8_t *data;
     uint32_t size;
-} g_banks[3];
+} g_banks[4];
 
 static uint16_t rd16_le(const uint8_t *p)
 {
@@ -126,7 +139,7 @@ static const uint8_t *msg_bank_get(int member, uint32_t *out_size)
     long n;
     uint8_t *buf;
 
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < 4; i++) {
         if (g_banks[i].member == member) {
             *out_size = g_banks[i].size;
             return g_banks[i].data;
@@ -191,7 +204,7 @@ static void units_to_utf8(const uint16_t *u, int n, char *out, int cap)
     while (i < n && at < cap - 4) {
         uint32_t c = u[i++];
 
-        if (c == 0xFFFFu) {
+        if (c == 0xFFFFu || c == 0u) {
             break;
         }
         if (c == 0xF000u) {
@@ -211,6 +224,13 @@ static void units_to_utf8(const uint16_t *u, int n, char *out, int cap)
         at = put_utf8(out, at, cap, c);
     }
     out[at] = '\0';
+}
+
+static int gear_msg_line(int member, uint32_t idx, char *out, int cap);
+
+int pokebw_gear_msg_line(int member, uint32_t idx, char *out, int cap)
+{
+    return gear_msg_line(member, idx, out, cap);
 }
 
 static int gear_msg_line(int member, uint32_t idx, char *out, int cap)
@@ -378,7 +398,7 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
     }
 
     g_frame_counter++;
-    if (!g_enc_dirty && zone_id == g_last_zone &&
+    if (!g_force_refresh && !g_enc_dirty && zone_id == g_last_zone &&
         hm_usable_mask == g_last_hm_usable &&
         hm_slots_sig == g_last_hm_slots &&
         (g_frame_counter % 30u) != 1u) {
@@ -394,6 +414,7 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
     g_last_hm_usable = hm_usable_mask;
     g_last_hm_slots = hm_slots_sig;
     g_enc_dirty = 0;
+    g_force_refresh = 0;
 
     memset(&g_snap, 0, sizeof(g_snap));
     memcpy(g_snap.field_moves, cur_hm, sizeof(g_snap.field_moves));
@@ -505,6 +526,52 @@ void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap)
             if (g_snap.habitats[h].count > 0u) {
                 g_snap.has_encounters = 1u;
                 break;
+            }
+        }
+    }
+
+    /* Collect PC Box occupancy/names & Bag pocket item counts (Phase 4.6) */
+    {
+        void *boxMgr = (GAME_DATA_GetBoxManager != NULL) ? GAME_DATA_GetBoxManager(gd) : NULL;
+        if (boxMgr != NULL && BOX_SAVEDATA_GetUsableBoxCount != NULL &&
+            BOX_SAVEDATA_GetCurrentBox != NULL && BOX_SAVEDATA_CountPokemonInBox != NULL) {
+            uint32_t usable = (uint32_t)BOX_SAVEDATA_GetUsableBoxCount(boxMgr);
+            uint32_t cur = BOX_SAVEDATA_GetCurrentBox(boxMgr);
+            const uint8_t *hdr = (BOX_SAVEDATA_GetHeader != NULL)
+                                     ? (const uint8_t *)BOX_SAVEDATA_GetHeader(boxMgr)
+                                     : NULL;
+            uint32_t b;
+
+            if (usable > POKEBW_GEAR_MAX_BOXES) {
+                usable = POKEBW_GEAR_MAX_BOXES;
+            }
+            if (usable > 0u && cur >= usable) {
+                cur = 0u;
+            }
+            g_snap.box_usable_count = (uint8_t)usable;
+            g_snap.box_current = (uint8_t)cur;
+            for (b = 0u; b < usable; b++) {
+                int cnt = BOX_SAVEDATA_CountPokemonInBox(boxMgr, b);
+                if (cnt < 0) cnt = 0;
+                if (cnt > 30) cnt = 30;
+                g_snap.box_counts[b] = (uint8_t)cnt;
+                if (hdr != NULL) {
+                    const uint16_t *nm = (const uint16_t *)(hdr + 4u + b * 0x28u);
+                    units_to_utf8(nm, 20, g_snap.box_names[b], (int)sizeof(g_snap.box_names[b]));
+                }
+                if (g_snap.box_names[b][0] == '\0') {
+                    snprintf(g_snap.box_names[b], sizeof(g_snap.box_names[b]),
+                             "Box %u", (unsigned)(b + 1u));
+                }
+            }
+        }
+
+        void *myItem = (GAME_DATA_GetMyItem != NULL) ? GAME_DATA_GetMyItem(gd) : NULL;
+        if (myItem != NULL && MYITEM_SAVEDATA_CountUsedSlotsInPocket != NULL) {
+            uint32_t pk;
+            for (pk = 0u; pk < POKEBW_GEAR_BAG_POCKETS; pk++) {
+                g_snap.bag_pocket_counts[pk] =
+                    (uint16_t)MYITEM_SAVEDATA_CountUsedSlotsInPocket(myItem, pk);
             }
         }
     }

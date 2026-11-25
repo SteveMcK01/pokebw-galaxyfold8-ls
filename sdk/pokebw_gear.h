@@ -10,5 +10,7 @@
 
 void pokebw_gear_on_encount_load(const void *encountData, uint32_t zoneId, int seasonIndex);
 void pokebw_gear_on_field_tick(void *gameSystem, void *fieldMap);
+void pokebw_gear_mark_dirty(void);
+int  pokebw_gear_msg_line(int member, uint32_t idx, char *out, int cap);
 
 #endif /* POKEBW_GEAR_H */

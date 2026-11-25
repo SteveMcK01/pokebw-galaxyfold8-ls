@@ -477,6 +477,164 @@ void draw_gear_tab(void)
         }
     }
 
+    if (ImGui::CollapsingHeader("PC Box & Bag Auto-Sorter")) {
+        if (gear->valid == 0u) {
+            ImGui::TextDisabled("Enter the overworld to sort PC Boxes or Bag pockets.");
+        } else {
+            static int s_pc_sel = -1;
+            static int s_pc_mode = POKEBW_SORT_PC_DEX;
+            static int s_bag_sel = 0;
+            static int s_bag_mode = POKEBW_SORT_BAG_GAME;
+
+            static const char *const k_pc_mode_names[] = {
+                "Dex # (National)",
+                "Name (A-Z)",
+                "Level (High -> Low)",
+                "Type",
+                "Shiny First"
+            };
+            static const char *const k_bag_mode_names[] = {
+                "Game Order (Category)",
+                "Name (A-Z)",
+                "Quantity (High -> Low)",
+                "Item ID"
+            };
+            static const char *const k_bag_pocket_names[POKEBW_GEAR_BAG_POCKETS] = {
+                "Items", "Medicine", "TM & HM", "Berries", "Key Items"
+            };
+
+            int usable_boxes = static_cast<int>(gear->box_usable_count);
+            if (usable_boxes > POKEBW_GEAR_MAX_BOXES) {
+                usable_boxes = POKEBW_GEAR_MAX_BOXES;
+            }
+            if (s_pc_sel < 0) {
+                s_pc_sel = (usable_boxes > 0 && gear->box_current < static_cast<uint8_t>(usable_boxes))
+                               ? static_cast<int>(gear->box_current) + 1
+                               : 0;
+            }
+            if (s_pc_sel > usable_boxes) {
+                s_pc_sel = 0;
+            }
+
+            int total_box_mons = 0;
+            for (int b = 0; b < usable_boxes; b++) {
+                total_box_mons += static_cast<int>(gear->box_counts[b]);
+            }
+
+            ImGui::TextDisabled("PC Storage (%d Pokemon across %d boxes):",
+                                total_box_mons, usable_boxes);
+            if (usable_boxes > 0) {
+                char pc_preview[64];
+                if (s_pc_sel == 0) {
+                    std::snprintf(pc_preview, sizeof(pc_preview),
+                                  "All Usable Boxes (%d Pokemon)", total_box_mons);
+                } else {
+                    int bi = s_pc_sel - 1;
+                    const char *bname = gear->box_names[bi][0] != '\0' ? gear->box_names[bi] : "Box";
+                    std::snprintf(pc_preview, sizeof(pc_preview), "%s (%u/30)%s",
+                                  bname, static_cast<unsigned>(gear->box_counts[bi]),
+                                  (bi == static_cast<int>(gear->box_current)) ? " *" : "");
+                }
+
+                if (ImGui::BeginCombo("Target Box", pc_preview)) {
+                    char item_lbl[64];
+                    std::snprintf(item_lbl, sizeof(item_lbl),
+                                  "All Usable Boxes (%d Pokemon)", total_box_mons);
+                    if (ImGui::Selectable(item_lbl, s_pc_sel == 0)) {
+                        s_pc_sel = 0;
+                    }
+                    for (int b = 0; b < usable_boxes; b++) {
+                        const char *bname = gear->box_names[b][0] != '\0' ? gear->box_names[b] : "Box";
+                        std::snprintf(item_lbl, sizeof(item_lbl), "%s (%u/30)%s",
+                                      bname, static_cast<unsigned>(gear->box_counts[b]),
+                                      (b == static_cast<int>(gear->box_current)) ? " [Current]" : "");
+                        ImGui::PushID(b);
+                        if (ImGui::Selectable(item_lbl, s_pc_sel == b + 1)) {
+                            s_pc_sel = b + 1;
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                s_pc_mode = std::clamp(s_pc_mode, 0, 4);
+                ImGui::Combo("Box Order", &s_pc_mode, k_pc_mode_names, 5);
+
+                const char *pc_btn = (s_pc_sel == 0) ? "Sort All PC Boxes" : "Sort Selected Box";
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.44f, 0.72f, 0.92f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.54f, 0.84f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.14f, 0.34f, 0.58f, 1.0f));
+                if (ImGui::Button(pc_btn, ImVec2(-1.0f, 0.0f))) {
+                    int kind = (s_pc_sel == 0) ? POKEBW_SORT_KIND_PC_ALL : POKEBW_SORT_KIND_PC_BOX;
+                    int target = (s_pc_sel == 0) ? 0 : (s_pc_sel - 1);
+                    host_sort_request_submit(kind, s_pc_mode, target,
+                                             static_cast<unsigned long long>(SDL_GetTicks()));
+                }
+                ImGui::PopStyleColor(3);
+            } else {
+                ImGui::TextDisabled("PC Box data unavailable yet.");
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            int total_bag = 0;
+            for (int pk = 0; pk < POKEBW_GEAR_BAG_POCKETS; pk++) {
+                total_bag += static_cast<int>(gear->bag_pocket_counts[pk]);
+            }
+            ImGui::TextDisabled("Bag Pockets (%d total item stacks):", total_bag);
+
+            s_bag_sel = std::clamp(s_bag_sel, 0, POKEBW_GEAR_BAG_POCKETS);
+            char bag_preview[64];
+            if (s_bag_sel == 0) {
+                std::snprintf(bag_preview, sizeof(bag_preview), "All Pockets (%d stacks)", total_bag);
+            } else {
+                int pk = s_bag_sel - 1;
+                std::snprintf(bag_preview, sizeof(bag_preview), "%s (%u stacks)",
+                              k_bag_pocket_names[pk],
+                              static_cast<unsigned>(gear->bag_pocket_counts[pk]));
+            }
+
+            if (ImGui::BeginCombo("Target Pocket", bag_preview)) {
+                char pk_lbl[64];
+                std::snprintf(pk_lbl, sizeof(pk_lbl), "All Pockets (%d stacks)", total_bag);
+                if (ImGui::Selectable(pk_lbl, s_bag_sel == 0)) {
+                    s_bag_sel = 0;
+                }
+                for (int pk = 0; pk < POKEBW_GEAR_BAG_POCKETS; pk++) {
+                    std::snprintf(pk_lbl, sizeof(pk_lbl), "%s (%u stacks)",
+                                  k_bag_pocket_names[pk],
+                                  static_cast<unsigned>(gear->bag_pocket_counts[pk]));
+                    if (ImGui::Selectable(pk_lbl, s_bag_sel == pk + 1)) {
+                        s_bag_sel = pk + 1;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
+            s_bag_mode = std::clamp(s_bag_mode, 0, 3);
+            ImGui::Combo("Bag Order", &s_bag_mode, k_bag_mode_names, 4);
+
+            const char *bag_btn = (s_bag_sel == 0) ? "Sort All Bag Pockets" : "Sort Selected Pocket";
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.56f, 0.42f, 0.92f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.68f, 0.50f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.14f, 0.44f, 0.32f, 1.0f));
+            if (ImGui::Button(bag_btn, ImVec2(-1.0f, 0.0f))) {
+                int kind = (s_bag_sel == 0) ? POKEBW_SORT_KIND_BAG_ALL : POKEBW_SORT_KIND_BAG_POCKET;
+                int target = (s_bag_sel == 0) ? 0 : (s_bag_sel - 1);
+                host_sort_request_submit(kind, s_bag_mode, target,
+                                         static_cast<unsigned long long>(SDL_GetTicks()));
+            }
+            ImGui::PopStyleColor(3);
+
+            if (host_sort_status()[0] != '\0') {
+                ImGui::Spacing();
+                ImGui::TextWrapped("%s", host_sort_status());
+            }
+        }
+    }
+
     if (ImGui::CollapsingHeader("Save Backup Slots")) {
         int active_slot = host_gear_active_save_slot();
         ImGui::Text("Active eidos Save: Slot %d / 8", active_slot);

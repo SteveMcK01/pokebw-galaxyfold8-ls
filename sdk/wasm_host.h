@@ -82,6 +82,8 @@ BW_WASM_IMPORT(pc_request_poll) unsigned bw_host_pc_request_poll(void);
 BW_WASM_IMPORT(pc_request_result) void bw_host_pc_request_result(int status);
 BW_WASM_IMPORT(hm_request_poll) unsigned bw_host_hm_request_poll(void);
 BW_WASM_IMPORT(hm_request_result) void bw_host_hm_request_result(int status);
+BW_WASM_IMPORT(sort_request_poll) unsigned bw_host_sort_request_poll(void);
+BW_WASM_IMPORT(sort_request_result) void bw_host_sort_request_result(int status, int count);
 BW_WASM_IMPORT(save_dir_poll) int bw_host_save_dir_poll(char *out, unsigned n);
 BW_WASM_IMPORT(gear_push) void bw_host_gear_push(const void *data, unsigned size);
 

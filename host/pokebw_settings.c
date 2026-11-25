@@ -29,6 +29,12 @@ static int g_hm_req_pending = 0;
 static int g_hm_req_skill = 0;
 static unsigned long long g_hm_req_ms = 0;
 static int g_hm_last_status = 0;
+static unsigned g_sort_req_word = 0u;
+static int g_sort_req_kind = 0;
+static int g_sort_req_mode = 0;
+static int g_sort_req_target = 0;
+static unsigned long long g_sort_req_ms = 0;
+static char g_sort_status[160] = "";
 static char g_default_save_dir[1024] = "";
 static int g_save_dir_dirty = 0;
 static char g_save_dir_status[160] = "";
@@ -479,6 +485,85 @@ void host_hm_request_set_result(int status)
 int host_hm_last_status(void)
 {
     return g_hm_last_status;
+}
+
+void host_sort_request_submit(int kind, int mode, int target, unsigned long long now_ms)
+{
+    g_sort_req_kind = kind;
+    g_sort_req_mode = mode;
+    g_sort_req_target = target;
+    g_sort_req_ms = now_ms;
+    g_sort_req_word = pokebw_sort_pack(kind, mode, target);
+    snprintf(g_sort_status, sizeof(g_sort_status), "Sorting...");
+}
+
+unsigned host_sort_request_poll(unsigned long long now_ms)
+{
+    unsigned word;
+
+    if (g_sort_req_word == 0u) {
+        return 0u;
+    }
+    if (now_ms > g_sort_req_ms && (now_ms - g_sort_req_ms) > 5000ull) {
+        g_sort_req_word = 0u;
+        snprintf(g_sort_status, sizeof(g_sort_status),
+                 "Sort unavailable right now (free-roam overworld only).");
+        return 0u;
+    }
+    word = g_sort_req_word;
+    g_sort_req_word = 0u;
+    return word;
+}
+
+void host_sort_request_set_result(int status, int count)
+{
+    static const char *const k_pc_modes[] = { "Dex #", "Name (A-Z)", "Level", "Type", "Shiny First" };
+    static const char *const k_bag_modes[] = { "Game Order", "Name (A-Z)", "Quantity", "Item ID" };
+    static const char *const k_pockets[] = { "Items", "Medicine", "TM & HM", "Berries", "Key Items" };
+
+    if (status < 0) {
+        snprintf(g_sort_status, sizeof(g_sort_status),
+                 "Sort blocked (only available while free-roaming on the overworld).");
+        return;
+    }
+    if (status == 0) {
+        if (g_sort_req_kind == POKEBW_SORT_KIND_PC_BOX || g_sort_req_kind == POKEBW_SORT_KIND_PC_ALL) {
+            snprintf(g_sort_status, sizeof(g_sort_status), "Target box selection is already empty.");
+        } else {
+            snprintf(g_sort_status, sizeof(g_sort_status), "Target pocket selection is already empty.");
+        }
+        return;
+    }
+
+    if (g_sort_req_kind == POKEBW_SORT_KIND_PC_BOX) {
+        int b = g_sort_req_target;
+        const char *m = (g_sort_req_mode >= 0 && g_sort_req_mode < 5) ? k_pc_modes[g_sort_req_mode] : "Order";
+        if (b >= 0 && b < POKEBW_GEAR_MAX_BOXES && g_gear_snap.box_names[b][0] != '\0') {
+            snprintf(g_sort_status, sizeof(g_sort_status),
+                     "Sorted %s (%d Pokemon) by %s.", g_gear_snap.box_names[b], count, m);
+        } else {
+            snprintf(g_sort_status, sizeof(g_sort_status),
+                     "Sorted Box %d (%d Pokemon) by %s.", b + 1, count, m);
+        }
+    } else if (g_sort_req_kind == POKEBW_SORT_KIND_PC_ALL) {
+        const char *m = (g_sort_req_mode >= 0 && g_sort_req_mode < 5) ? k_pc_modes[g_sort_req_mode] : "Order";
+        snprintf(g_sort_status, sizeof(g_sort_status),
+                 "Sorted all usable boxes (%d Pokemon) by %s.", count, m);
+    } else if (g_sort_req_kind == POKEBW_SORT_KIND_BAG_POCKET) {
+        int pk = clamp_int(g_sort_req_target, 0, POKEBW_GEAR_BAG_POCKETS - 1);
+        const char *m = (g_sort_req_mode >= 0 && g_sort_req_mode < 4) ? k_bag_modes[g_sort_req_mode] : "Order";
+        snprintf(g_sort_status, sizeof(g_sort_status),
+                 "Sorted %s (%d stacks) by %s.", k_pockets[pk], count, m);
+    } else {
+        const char *m = (g_sort_req_mode >= 0 && g_sort_req_mode < 4) ? k_bag_modes[g_sort_req_mode] : "Order";
+        snprintf(g_sort_status, sizeof(g_sort_status),
+                 "Sorted all Bag pockets (%d stacks) by %s.", count, m);
+    }
+}
+
+const char *host_sort_status(void)
+{
+    return g_sort_status;
 }
 
 const char *host_settings_effective_save_dir(void)

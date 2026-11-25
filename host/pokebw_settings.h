@@ -77,6 +77,12 @@ unsigned host_hm_request_poll(unsigned long long now_ms);
 void host_hm_request_set_result(int status);
 int  host_hm_last_status(void);
 
+/* Phase 4.6: One-shot PC Box / Bag Auto-Sort request (host -> wasm). */
+void host_sort_request_submit(int kind, int mode, int target, unsigned long long now_ms);
+unsigned host_sort_request_poll(unsigned long long now_ms);
+void host_sort_request_set_result(int status, int count);
+const char *host_sort_status(void);
+
 /* Custom external save folder support (PKForge / emulator .sav interop). */
 const char *host_settings_effective_save_dir(void);
 void host_settings_set_save_dir(const char *new_dir);

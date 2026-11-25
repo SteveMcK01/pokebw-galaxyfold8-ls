@@ -729,6 +729,9 @@ void draw_settings_modal(const SDL_Rect &safe, PokebwSettings *cfg)
                     setting_checkbox("Battle Effectiveness Pills",
                                      "Show 4x/2x/1/2/1/4/0x badges on move cards (Teravolt, Turboblaze, Mold Breaker, and ability-aware).",
                                      &cfg->type_effectiveness);
+                    setting_checkbox("Poke Ball Quick-Throw Carousel",
+                                     "Show a < [Poke Ball xQty] > quick-throw bar directly on the wild battle command screen for one-tap catching.",
+                                     &cfg->ball_carousel);
                     {
                         static const char *const k_seasons[] = { "Auto", "Spring", "Summer", "Autumn", "Winter" };
                         static const char *const k_clocks[] = { "Auto", "Morning (07:00)", "Day (13:00)", "Evening (18:00)", "Night (22:00)" };

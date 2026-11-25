@@ -57,6 +57,16 @@
 #include "overlay.h"
 #include "port.h"
 #include "pokebw_settings_ids.h"
+#include "pokebw_ball_carousel.h"
+
+/* Phase 4.5: Battle Poké Ball Quick-Throw Carousel (linked in eidos_boot only). */
+extern int  pokebw_ball_carousel_query(void *core_ptr, PokebwBallEntry *out,
+                                       int max_entries, u16 *out_last_ball)
+    __attribute__((weak));
+extern void pokebw_ball_carousel_request_throw(u16 item_id)
+    __attribute__((weak));
+extern void pokebw_ball_carousel_clear_pending(void)
+    __attribute__((weak));
 
 /* The game's own functions, resolved when the game is linked in. */
 struct PokemonParam;
@@ -2390,6 +2400,179 @@ static int spatial_step(const EidosUiRect *r, const int *en, int n, int cur, u32
     return best;
 }
 
+static u16 g_ball_sel_id = 0;
+static u32 g_ball_throw_frame = 0;
+
+/*
+ * Phase 4.5: < [Ball Icon + Name  xQty] > quick-throw carousel on the
+ * One-Screen battle command menu (only active when a Poké Ball can legally
+ * be thrown in the current wild battle).
+ */
+static void draw_ball_carousel(EidosUiCtx *c, const Bt *b, const UiBattleLayout *l, u32 frame)
+{
+    PokebwBallEntry balls[32];
+    u16 last_ball = 0;
+    int n, i, idx = -1;
+    int row_layout, cmd_x0, cmd_y0, cmd_x1, cmd_y1;
+    int bx, by, bw, bh = 24;
+    int lx, lw = 22, rx, rw = 22, cx, cw;
+    int st_l, st_r, st_c;
+    u32 f = b->in != NULL ? rd32(b->in, 0x68) : 0u;
+    int input_busy = (f & (0xFu | (1u << 31))) != 0u;
+    const UiImage *icon;
+    char name[48], qty[16];
+    int icon_w, qty_w, nx, avail;
+
+    if (pokebw_ball_carousel_query == NULL || pokebw_ball_carousel_request_throw == NULL ||
+        bw_pokebw_setting(POKEBW_SET_BALL_CAROUSEL) == 0 || b->core == NULL) {
+        return;
+    }
+
+    n = pokebw_ball_carousel_query(b->core, balls, 32, &last_ball);
+    if (n <= 0) {
+        return;
+    }
+
+    if (g_ball_sel_id != 0) {
+        for (i = 0; i < n; i++) {
+            if (balls[i].item_id == g_ball_sel_id) {
+                idx = i;
+                break;
+            }
+        }
+    }
+    if (idx < 0 && last_ball != 0) {
+        for (i = 0; i < n; i++) {
+            if (balls[i].item_id == last_ball) {
+                idx = i;
+                break;
+            }
+        }
+    }
+    if (idx < 0) {
+        idx = 0;
+    }
+    g_ball_sel_id = balls[idx].item_id;
+
+    cmd_x0 = cmd_x1 = l->cmd[0].x;
+    cmd_y0 = cmd_y1 = l->cmd[0].y;
+    for (i = 0; i < 4; i++) {
+        if (l->cmd[i].x < cmd_x0) cmd_x0 = l->cmd[i].x;
+        if (l->cmd[i].y < cmd_y0) cmd_y0 = l->cmd[i].y;
+        if (l->cmd[i].x + l->cmd[i].w > cmd_x1) cmd_x1 = l->cmd[i].x + l->cmd[i].w;
+        if (l->cmd[i].y + l->cmd[i].h > cmd_y1) cmd_y1 = l->cmd[i].y + l->cmd[i].h;
+    }
+    (void)cmd_y1;
+
+    row_layout = (abs(l->cmd[0].y - l->cmd[2].y) < 4);
+    if (row_layout) {
+        bw = clampi(l->msg.w - 8, 152, 188);
+        bx = l->msg.x + 6;
+        by = l->msg.y - bh - 6;
+    } else {
+        bw = clampi(cmd_x1 - cmd_x0, 152, 200);
+        bx = cmd_x1 - bw;
+        by = cmd_y0 - bh - 4;
+    }
+    if (by < l->foe_y + 34) {
+        by = l->foe_y + 34;
+    }
+
+    lx = bx;
+    rx = bx + bw - rw;
+    cx = bx + lw + 2;
+    cw = bw - lw - rw - 4;
+
+    st_l = hit(c, lx, by, lw, bh);
+    st_r = hit(c, rx, by, rw, bh);
+    st_c = hit(c, cx, by, cw, bh);
+
+    if (n > 1 && (st_l & EIDOS_UI_CLICK)) {
+        idx = (idx + n - 1) % n;
+        g_ball_sel_id = balls[idx].item_id;
+        eidos_ui_sound(0x552);
+    } else if (n > 1 && (st_r & EIDOS_UI_CLICK)) {
+        idx = (idx + 1) % n;
+        g_ball_sel_id = balls[idx].item_id;
+        eidos_ui_sound(0x552);
+    } else if (!input_busy && (st_c & EIDOS_UI_CLICK) &&
+               (frame - g_ball_throw_frame > 15u)) {
+        g_ball_throw_frame = frame;
+        eidos_ui_sound(0x547);
+        pokebw_ball_carousel_request_throw(balls[idx].item_id);
+    }
+
+    /* Draw < button */
+    {
+        u32 arrow_col = n > 1 ? 0xD83848u : UI_EDGE2;
+        int hov_l = n > 1 && ((st_l & EIDOS_UI_HOVER) != 0);
+        ui_panel(c, lx, by, lw, bh, UI_CUT_TL | UI_CUT_BL, 4,
+                 hov_l ? tint16(arrow_col, 5) : UI_BODY,
+                 hov_l ? arrow_col : UI_EDGE, 240);
+        ui_text(c, lx + (lw - ui_text_w("<", UI_FONT_MEDIUM)) / 2,
+                by + ui_text_y(bh, UI_FONT_MEDIUM), "<",
+                n > 1 ? UI_WHITE : UI_EDGE2, UI_EDGE, UI_FONT_MEDIUM, 1);
+    }
+
+    /* Draw center [icon Ball Name xQty] quick-throw button */
+    {
+        u32 ball_col = 0xE63946u;
+        int hov_c = (st_c & EIDOS_UI_HOVER) != 0;
+        ui_panel(c, cx, by, cw, bh, UI_CUT_TL | UI_CUT_BR, 4,
+                 hov_c ? tint16(ball_col, 6) : tint16(ball_col, 2),
+                 hov_c ? UI_WHITE : ball_col, 245);
+
+        icon = ui_item_icon(balls[idx].item_id);
+        icon_w = icon != NULL ? icon->w : 0;
+        if (icon != NULL) {
+            ui_image(c, cx + 4, by + (bh - icon->h) / 2, icon, 1);
+        }
+
+        snprintf(qty, sizeof(qty), "x%u", (unsigned)balls[idx].qty);
+        qty_w = ui_text_w(qty, UI_FONT_SMALL);
+        ui_text(c, cx + cw - 6 - qty_w, by + ui_text_y(bh, UI_FONT_SMALL),
+                qty, UI_LIGHT, UI_EDGE, UI_FONT_SMALL, 1);
+
+        item_name((int)balls[idx].item_id, name, sizeof(name));
+        nx = cx + 6 + (icon_w > 0 ? icon_w + 3 : 0);
+        avail = cx + cw - 10 - qty_w - nx;
+        if (avail > 12 && ui_text_w(name, UI_FONT_SMALL) > avail) {
+            size_t len = strlen(name);
+            int dot_w = ui_text_w(".", UI_FONT_SMALL);
+
+            while (len > 1) {
+                do {
+                    len--;
+                } while (len > 0 && ((u8)name[len] & 0xC0u) == 0x80u);
+                name[len] = '\0';
+                if (ui_text_w(name, UI_FONT_SMALL) + dot_w <= avail) {
+                    if (len + 1u < sizeof(name)) {
+                        name[len] = '.';
+                        name[len + 1u] = '\0';
+                    }
+                    break;
+                }
+            }
+        }
+        if (avail > 12) {
+            ui_text(c, nx, by + ui_text_y(bh, UI_FONT_SMALL),
+                    name, UI_WHITE, UI_EDGE, UI_FONT_SMALL, 1);
+        }
+    }
+
+    /* Draw > button */
+    {
+        u32 arrow_col = n > 1 ? 0xD83848u : UI_EDGE2;
+        int hov_r = n > 1 && ((st_r & EIDOS_UI_HOVER) != 0);
+        ui_panel(c, rx, by, rw, bh, UI_CUT_TR | UI_CUT_BR, 4,
+                 hov_r ? tint16(arrow_col, 5) : UI_BODY,
+                 hov_r ? arrow_col : UI_EDGE, 240);
+        ui_text(c, rx + (rw - ui_text_w(">", UI_FONT_MEDIUM)) / 2,
+                by + ui_text_y(bh, UI_FONT_MEDIUM), ">",
+                n > 1 ? UI_WHITE : UI_EDGE2, UI_EDGE, UI_FONT_MEDIUM, 1);
+    }
+}
+
 static void action_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
 {
     static const char *const hints[] = { "A", "Select", "B", "Back" };
@@ -2438,6 +2621,9 @@ static void action_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
             hovered = i;
         }
         if ((st & EIDOS_UI_CLICK) && en[i]) {
+            if (pokebw_ball_carousel_clear_pending != NULL) {
+                pokebw_ball_carousel_clear_pending();
+            }
             tap_request(tap_x[i], tap_y[i], bt_sig(&b, 1), in->frame);
             note_click(&b, i);
             cur = i;
@@ -2479,6 +2665,7 @@ static void action_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
     }
     prompt_choosing(&b, prompt_buf, sizeof(prompt_buf));
     shell_draw(c, &b, &sh, prompt_buf, 0);
+    draw_ball_carousel(c, &b, &l, in->frame);
     draw_hint_strip(c, 0, c->canvas->w, hints, can_back ? 2 : 1, keys);
 }
 

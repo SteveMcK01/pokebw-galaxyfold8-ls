@@ -45,6 +45,7 @@ typedef struct {
     int fast_forward_speed; /* 0=2x, 1=3x, 2=4x, 3=Max */
     int shiny_odds;         /* 0=1/8192, 1=1/1024, 2=1/256, 3=1/64, 4=100% */
     int repel_prompt;       /* 0 Off, 1 On (BW2-style Repel reuse prompt) */
+    int ball_carousel;      /* 0 Off, 1 On (One-screen Poké Ball quick-throw carousel) */
 
     /* Save */
     char save_dir[1024];

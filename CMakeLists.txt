@@ -3448,6 +3448,15 @@ if(NOT _eidos_ovls STREQUAL "")
             "-Wl,--wrap=ov010_SCRIPT_SYS_CreateScriptEventSimple")
     endif()
 
+    # PokeBW Fold Phase 4.5: Battle Poké Ball Quick-Throw Carousel
+    if(NOT MSVC AND NOT APPLE AND EIDOS_BOOT AND
+       (_eidos_ovls STREQUAL "ALL" OR ";${_eidos_ovls};" MATCHES ";93;"))
+        target_sources(eidos_boot PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_ball_carousel.c)
+        target_link_options(eidos_boot PRIVATE
+            "-Wl,--wrap=ov093_BTLV_CORE_PollActionMenu")
+    endif()
+
     # test_ovlink_title: every overlay of the set loaded from the extract in
     # turn, its tables checked against the player's files.  Without the
     # boot only: with it the overlays' ARM9 callees are the boot's, and

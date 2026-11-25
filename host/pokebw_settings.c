@@ -54,6 +54,7 @@ static void apply_all_defaults(PokebwSettings *s)
     s->overworld_wild_density = 4;
     s->type_effectiveness = 1;
     s->repel_prompt = 1;
+    s->ball_carousel = 1;
 }
 
 static int clamp_int(int v, int lo, int hi)
@@ -117,6 +118,7 @@ static void parse_ini_line(const char *section, const char *key, const char *val
         else if (strcmp(key, "fast_forward_speed") == 0) g_settings.fast_forward_speed = clamp_int(atoi(val), 0, 3);
         else if (strcmp(key, "shiny_odds") == 0) g_settings.shiny_odds = clamp_int(atoi(val), 0, 4);
         else if (strcmp(key, "repel_prompt") == 0) g_settings.repel_prompt = parse_bool(val);
+        else if (strcmp(key, "ball_carousel") == 0) g_settings.ball_carousel = parse_bool(val);
     } else if (strcmp(section, "Save") == 0) {
         if (strcmp(key, "save_dir") == 0) {
             snprintf(g_settings.save_dir, sizeof(g_settings.save_dir), "%s", val);
@@ -234,6 +236,7 @@ int host_settings_get_by_id(int id)
     case POKEBW_SET_FAST_FORWARD_SPEED:   return clamp_int(s->fast_forward_speed, 0, 3);
     case POKEBW_SET_SHINY_ODDS:           return clamp_int(s->shiny_odds, 0, 4);
     case POKEBW_SET_REPEL_PROMPT:         return s->repel_prompt;
+    case POKEBW_SET_BALL_CAROUSEL:        return s->ball_carousel;
     default:                              return 0;
     }
 }
@@ -295,7 +298,8 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             "type_effectiveness = %d\n"
             "fast_forward_speed = %d\n"
             "shiny_odds = %d\n"
-            "repel_prompt = %d\n\n"
+            "repel_prompt = %d\n"
+            "ball_carousel = %d\n\n"
             "[Save]\n"
             "save_dir = %s\n",
             s->touch_visible ? 1 : 0,
@@ -322,6 +326,7 @@ static int write_ini_file(const char *path, const PokebwSettings *s)
             clamp_int(s->fast_forward_speed, 0, 3),
             clamp_int(s->shiny_odds, 0, 4),
             s->repel_prompt ? 1 : 0,
+            s->ball_carousel ? 1 : 0,
             s->save_dir);
     if (ferror(f) || fclose(f) != 0) {
         return -1;

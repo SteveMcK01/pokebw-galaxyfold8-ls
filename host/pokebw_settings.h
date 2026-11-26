@@ -7,6 +7,7 @@
 #define EIDOS_HOST_POKEBW_SETTINGS_H
 
 #include "pokebw_gear_state.h"
+#include "pokebw_dex_state.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -106,6 +107,15 @@ int  host_backup_slot_info(int slot, PokebwBackupSlotInfo *out);
 int  host_backup_slot_save(int slot);
 int  host_backup_slot_restore(int slot);
 const char *host_backup_status(void);
+
+/* Phase 4.8: Built-in Pokédex Lookup cache & requests (host <-> wasm). */
+void host_dex_request_submit(int want_index, uint16_t species, uint8_t form, unsigned long long now_ms);
+unsigned host_dex_request_poll(unsigned long long now_ms);
+void host_dex_index_update(const PokebwDexIndex *idx);
+const PokebwDexIndex *host_dex_index_get(void);
+void host_dex_detail_update(const PokebwDexDetail *detail);
+const PokebwDexDetail *host_dex_detail_get(void);
+const char *host_dex_status(void);
 
 #ifdef __cplusplus
 }

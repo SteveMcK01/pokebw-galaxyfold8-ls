@@ -40,6 +40,11 @@ static int g_save_dir_dirty = 0;
 static char g_save_dir_status[160] = "";
 static PokebwGearSnapshot g_gear_snap;
 static char g_backup_status[160] = "";
+static unsigned g_dex_req_word = 0u;
+static unsigned long long g_dex_req_ms = 0;
+static PokebwDexIndex g_dex_index;
+static PokebwDexDetail g_dex_detail;
+static char g_dex_status[160] = "";
 
 static void apply_control_defaults(PokebwSettings *s)
 {
@@ -870,4 +875,66 @@ int host_backup_slot_restore(int slot)
 const char *host_backup_status(void)
 {
     return g_backup_status;
+}
+
+void host_dex_request_submit(int want_index, uint16_t species, uint8_t form, unsigned long long now_ms)
+{
+    g_dex_req_ms = now_ms;
+    g_dex_req_word = pokebw_dex_pack(want_index, species, form);
+    snprintf(g_dex_status, sizeof(g_dex_status), "Loading Pokedex data...");
+}
+
+unsigned host_dex_request_poll(unsigned long long now_ms)
+{
+    unsigned word;
+
+    if (g_dex_req_word == 0u) {
+        return 0u;
+    }
+    if (now_ms > g_dex_req_ms && (now_ms - g_dex_req_ms) > 5000ull) {
+        g_dex_req_word = 0u;
+        snprintf(g_dex_status, sizeof(g_dex_status),
+                 "Pokedex lookup requires free-roam overworld.");
+        return 0u;
+    }
+    word = g_dex_req_word;
+    g_dex_req_word = 0u;
+    return word;
+}
+
+void host_dex_index_update(const PokebwDexIndex *idx)
+{
+    if (idx == NULL) {
+        return;
+    }
+    g_dex_index = *idx;
+    if (g_dex_index.valid != 0u) {
+        g_dex_status[0] = '\0';
+    }
+}
+
+const PokebwDexIndex *host_dex_index_get(void)
+{
+    return &g_dex_index;
+}
+
+void host_dex_detail_update(const PokebwDexDetail *detail)
+{
+    if (detail == NULL) {
+        return;
+    }
+    g_dex_detail = *detail;
+    if (g_dex_detail.valid != 0u) {
+        g_dex_status[0] = '\0';
+    }
+}
+
+const PokebwDexDetail *host_dex_detail_get(void)
+{
+    return &g_dex_detail;
+}
+
+const char *host_dex_status(void)
+{
+    return g_dex_status;
 }

@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "pokebw_dex_lookup.h"
 #include "pokebw_follower.h"
 #include "pokebw_gear.h"
 #include "pokebw_hm_shortcut.h"
@@ -274,6 +275,7 @@ void *__wrap_ov021_FIELD_EVENT_CHECK_RunGrid(void *gameSystem, void *fieldMapArg
     }
     pokebw_gear_on_field_tick(gameSystem, fieldMapArg);
     pokebw_sorter_on_field_tick(gameSystem, fieldMapArg);
+    pokebw_dex_lookup_on_field_tick(gameSystem, fieldMapArg);
     pokebw_follower_on_a_press(gameSystem, fieldMapArg);
     {
         void *wild_ev = pokebw_wild_check_encounter(gameSystem, fieldMapArg);
@@ -298,6 +300,7 @@ void *__wrap_ov021_FIELD_EVENT_CHECK_RunRail(void *gameSystem, void *fieldMapArg
     }
     pokebw_gear_on_field_tick(gameSystem, fieldMapArg);
     pokebw_sorter_on_field_tick(gameSystem, fieldMapArg);
+    pokebw_dex_lookup_on_field_tick(gameSystem, fieldMapArg);
     pokebw_follower_on_a_press(gameSystem, fieldMapArg);
     {
         void *hm_ev = pokebw_hm_shortcut_try_run(gameSystem, fieldMapArg, 1);

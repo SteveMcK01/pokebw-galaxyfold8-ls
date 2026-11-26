@@ -331,6 +331,30 @@ void w2c_eidos_gear_push(struct w2c_eidos *e, u32 data, u32 size)
     host_gear_update((const PokebwGearSnapshot *)host_ptr(data, size));
 }
 
+u32 w2c_eidos_dex_request_poll(struct w2c_eidos *e)
+{
+    (void)e;
+    return (u32)host_dex_request_poll((unsigned long long)SDL_GetTicks());
+}
+
+void w2c_eidos_dex_index_push(struct w2c_eidos *e, u32 data, u32 size)
+{
+    (void)e;
+    if (size != (u32)sizeof(PokebwDexIndex)) {
+        return;
+    }
+    host_dex_index_update((const PokebwDexIndex *)host_ptr(data, size));
+}
+
+void w2c_eidos_dex_detail_push(struct w2c_eidos *e, u32 data, u32 size)
+{
+    (void)e;
+    if (size != (u32)sizeof(PokebwDexDetail)) {
+        return;
+    }
+    host_dex_detail_update((const PokebwDexDetail *)host_ptr(data, size));
+}
+
 /* A trap: the native frames, as the executable's own addresses, for
  * addr2line (the translated functions carry the module's names). */
 void host_trap(wasm_rt_trap_t code)

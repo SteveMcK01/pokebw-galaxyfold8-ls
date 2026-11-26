@@ -295,6 +295,13 @@ static void pokebw_apply_catch_em_all(struct PokebwEncountData *row, uint32_t zo
     }
 }
 
+void pokebw_catch_em_all_apply_if_enabled(void *encountData, uint32_t zoneId)
+{
+    if (encountData != NULL && bw_pokebw_setting(POKEBW_SET_CATCH_EM_ALL)) {
+        pokebw_apply_catch_em_all((struct PokebwEncountData *)encountData, zoneId);
+    }
+}
+
 int __wrap_ov010_FIELD_ENCOUNT_ST_LoadEncountData(
     struct PokebwEncountData *row,
     void *arc,

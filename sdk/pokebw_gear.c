@@ -119,7 +119,7 @@ static struct {
     int member;
     uint8_t *data;
     uint32_t size;
-} g_banks[4];
+} g_banks[8];
 
 static uint16_t rd16_le(const uint8_t *p)
 {
@@ -141,7 +141,7 @@ static const uint8_t *msg_bank_get(int member, uint32_t *out_size)
     long n;
     uint8_t *buf;
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < 8; i++) {
         if (g_banks[i].member == member) {
             *out_size = g_banks[i].size;
             return g_banks[i].data;

@@ -13,6 +13,7 @@
 #include <GLES3/gl3.h>
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -269,6 +270,220 @@ static const char *daycare_lang_tag(uint8_t lang)
     case 7: return "ES";
     case 8: return "KO";
     default: return "??";
+    }
+}
+
+static const char *const k_type_names[18] = {
+    "Normal", "Fighting", "Flying", "Poison", "Ground", "Rock",
+    "Bug", "Ghost", "Steel", "Fire", "Water", "Grass",
+    "Electric", "Psychic", "Ice", "Dragon", "Dark", "???"
+};
+
+static const char *const k_egg_group_names[16] = {
+    "None", "Monster", "Water 1", "Bug", "Flying", "Field", "Fairy", "Grass",
+    "Human-Like", "Water 3", "Mineral", "Amorphous", "Water 2", "Ditto",
+    "Dragon", "Undiscovered"
+};
+
+static bool dex_icontains(const char *haystack, const char *needle)
+{
+    if (needle[0] == '\0') {
+        return true;
+    }
+    for (const char *h = haystack; *h != '\0'; h++) {
+        const char *p = h;
+        const char *q = needle;
+        while (*p != '\0' && *q != '\0' &&
+               std::tolower(static_cast<unsigned char>(*p)) ==
+                   std::tolower(static_cast<unsigned char>(*q))) {
+            p++;
+            q++;
+        }
+        if (*q == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int dex_icmp(const char *a, const char *b)
+{
+    while (*a != '\0' && *b != '\0') {
+        int ca = std::tolower(static_cast<unsigned char>(*a));
+        int cb = std::tolower(static_cast<unsigned char>(*b));
+        if (ca != cb) {
+            return ca - cb;
+        }
+        a++;
+        b++;
+    }
+    return static_cast<unsigned char>(*a) - static_cast<unsigned char>(*b);
+}
+
+static void draw_dex_type_badge(uint8_t type_id)
+{
+    int ti = type_id < 18u ? static_cast<int>(type_id) : 17;
+    ImVec4 tc = k_type_colors[ti];
+    ImVec4 fill(tc.x * 0.45f, tc.y * 0.45f, tc.z * 0.45f, 0.96f);
+    ImVec4 border(tc.x * 0.90f, tc.y * 0.90f, tc.z * 0.90f, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button, fill);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, fill);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, fill);
+    ImGui::PushStyleColor(ImGuiCol_Border, border);
+    ImGui::SmallButton(k_type_names[ti]);
+    ImGui::PopStyleColor(4);
+}
+
+static void format_gender_ratio(uint8_t ratio, char *out, size_t cap)
+{
+    if (ratio == 255u) {
+        std::snprintf(out, cap, "Genderless");
+    } else if (ratio == 0u) {
+        std::snprintf(out, cap, "100%% M");
+    } else if (ratio == 254u) {
+        std::snprintf(out, cap, "100%% F");
+    } else if (ratio == 31u) {
+        std::snprintf(out, cap, "87.5%% M / 12.5%% F");
+    } else if (ratio == 63u) {
+        std::snprintf(out, cap, "75%% M / 25%% F");
+    } else if (ratio == 127u) {
+        std::snprintf(out, cap, "50%% M / 50%% F");
+    } else if (ratio == 191u) {
+        std::snprintf(out, cap, "25%% M / 75%% F");
+    } else if (ratio == 225u) {
+        std::snprintf(out, cap, "12.5%% M / 87.5%% F");
+    } else {
+        double f_pct = (static_cast<double>(ratio) * 100.0) / 255.0;
+        std::snprintf(out, cap, "%.0f%% M / %.0f%% F", 100.0 - f_pct, f_pct);
+    }
+}
+
+static void format_dex_evo_desc(const PokebwDexEvo &e, bool trade_fix, char *out, size_t cap)
+{
+    const char *pname = (e.param_name[0] != '\0') ? e.param_name : "Required Item";
+
+    switch (e.method) {
+    case 1: std::snprintf(out, cap, "High Friendship"); break;
+    case 2: std::snprintf(out, cap, "Friendship (Day)"); break;
+    case 3: std::snprintf(out, cap, "Friendship (Night)"); break;
+    case 4: std::snprintf(out, cap, "Lv. %u", (unsigned)e.param); break;
+    case 5:
+        std::snprintf(out, cap, trade_fix ? "Trade or Lv. 36+" : "Trade");
+        break;
+    case 6:
+        if (e.param_name[0] != '\0') {
+            std::snprintf(out, cap, trade_fix ? "Lv-Up / Trade w/ %s" : "Trade w/ %s", pname);
+        } else {
+            std::snprintf(out, cap, trade_fix ? "Lv-Up / Trade w/ Item #%u" : "Trade w/ Item #%u",
+                          (unsigned)e.param);
+        }
+        break;
+    case 7:
+        if (trade_fix) {
+            std::snprintf(out, cap, "Lv. 36+ or w/ counterpart in party");
+        } else {
+            std::snprintf(out, cap, "Trade w/ Karrablast / Shelmet");
+        }
+        break;
+    case 8:  std::snprintf(out, cap, "Use %s", pname); break;
+    case 9:  std::snprintf(out, cap, "Lv. %u (Atk > Def)", (unsigned)e.param); break;
+    case 10: std::snprintf(out, cap, "Lv. %u (Atk = Def)", (unsigned)e.param); break;
+    case 11: std::snprintf(out, cap, "Lv. %u (Atk < Def)", (unsigned)e.param); break;
+    case 12: std::snprintf(out, cap, "Lv. %u (Personality)", (unsigned)e.param); break;
+    case 13: std::snprintf(out, cap, "Lv. %u (Personality)", (unsigned)e.param); break;
+    case 14: std::snprintf(out, cap, "Lv. %u", (unsigned)e.param); break;
+    case 15: std::snprintf(out, cap, "Lv. 20 (Empty Party Slot + Poke Ball)"); break;
+    case 16: std::snprintf(out, cap, "High Beauty (%u)", (unsigned)e.param); break;
+    case 17: std::snprintf(out, cap, "Use %s (Male)", pname); break;
+    case 18: std::snprintf(out, cap, "Use %s (Female)", pname); break;
+    case 19: std::snprintf(out, cap, "Lv-Up w/ %s (Day)", pname); break;
+    case 20: std::snprintf(out, cap, "Lv-Up w/ %s (Night)", pname); break;
+    case 21:
+        std::snprintf(out, cap, "Lv-Up knowing %s",
+                      e.param_name[0] != '\0' ? e.param_name : "Move");
+        break;
+    case 22:
+        std::snprintf(out, cap, "Lv-Up w/ %s in party",
+                      e.param_name[0] != '\0' ? e.param_name : "Partner");
+        break;
+    case 23: std::snprintf(out, cap, "Lv. %u (Male)", (unsigned)e.param); break;
+    case 24: std::snprintf(out, cap, "Lv. %u (Female)", (unsigned)e.param); break;
+    case 25: std::snprintf(out, cap, "Lv-Up in Chargestone Cave"); break;
+    case 26: std::snprintf(out, cap, "Lv-Up near Moss Rock (Pinwheel)"); break;
+    case 27: std::snprintf(out, cap, "Lv-Up near Ice Rock (Twist Mt.)"); break;
+    case 28: std::snprintf(out, cap, "Lv-Up in special Unova zone"); break;
+    default: std::snprintf(out, cap, "Method %u", (unsigned)e.method); break;
+    }
+}
+
+static void draw_dex_move_table(const char *table_id, const PokebwDexMove *moves, int count, int mode)
+{
+    if (count <= 0) {
+        ImGui::TextDisabled("None.");
+        return;
+    }
+    static const char *const k_cat_names[3] = { "Stat", "Phys", "Spec" };
+    int ncols = (mode == 2) ? 6 : 7;
+    if (ImGui::BeginTable(table_id, ncols,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                              ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollY,
+                          ImVec2(0.0f, std::min(280.0f, 34.0f * (count + 1))))) {
+        if (mode == 0) {
+            ImGui::TableSetupColumn("Lv", ImGuiTableColumnFlags_WidthFixed);
+        } else if (mode == 1) {
+            ImGui::TableSetupColumn("TM", ImGuiTableColumnFlags_WidthFixed);
+        }
+        ImGui::TableSetupColumn("Move", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Cat", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Pwr", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Acc", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("PP", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+
+        for (int i = 0; i < count; i++) {
+            const PokebwDexMove &m = moves[i];
+            int cat_idx = m.category < 3u ? static_cast<int>(m.category) : 0;
+            ImGui::TableNextRow();
+            if (mode == 0) {
+                ImGui::TableNextColumn();
+                if (m.tag <= 1u) {
+                    ImGui::TextUnformatted("Start");
+                } else {
+                    ImGui::Text("Lv.%u", (unsigned)m.tag);
+                }
+            } else if (mode == 1) {
+                ImGui::TableNextColumn();
+                if (m.tag > 100u) {
+                    ImGui::Text("HM%02u", (unsigned)(m.tag - 100u));
+                } else {
+                    ImGui::Text("TM%02u", (unsigned)m.tag);
+                }
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(m.name);
+            ImGui::TableNextColumn();
+            ImGui::PushID(i);
+            draw_dex_type_badge(m.type);
+            ImGui::PopID();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(k_cat_names[cat_idx]);
+            ImGui::TableNextColumn();
+            if (m.power == 0u) {
+                ImGui::TextDisabled("-");
+            } else {
+                ImGui::Text("%u", (unsigned)m.power);
+            }
+            ImGui::TableNextColumn();
+            if (m.accuracy == 0u) {
+                ImGui::TextDisabled("-");
+            } else {
+                ImGui::Text("%u", (unsigned)m.accuracy);
+            }
+            ImGui::TableNextColumn();
+            ImGui::Text("%u", (unsigned)m.pp);
+        }
+        ImGui::EndTable();
     }
 }
 
@@ -810,6 +1025,403 @@ void draw_gear_tab(void)
             if (host_sort_status()[0] != '\0') {
                 ImGui::Spacing();
                 ImGui::TextWrapped("%s", host_sort_status());
+            }
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Pokedex Lookup (A-Z / #001-649)")) {
+        static bool s_dex_auto_req = false;
+        static char s_dex_search[40] = "";
+        static int s_dex_sort_az = 1;
+        static int s_dex_letter = 0; /* 0 = All, 1..26 = A..Z */
+        static int s_dex_owned_filter = 0; /* 0=All, 1=Seen+, 2=Caught */
+        static uint16_t s_selected_species = 0u;
+        static uint8_t s_selected_form = 0u;
+
+        const PokebwDexIndex *dex_idx = host_dex_index_get();
+        const PokebwDexDetail *dex_det = host_dex_detail_get();
+
+        if (gear->valid == 0u) {
+            s_dex_auto_req = false;
+            ImGui::TextDisabled("Enter the overworld to browse ROM Pokedex data.");
+        } else {
+            uint64_t now_ms = SDL_GetTicks();
+            uint16_t default_sp = (gear->party_count > 0u && gear->party[0].species >= 1u &&
+                                   gear->party[0].species <= POKEBW_DEX_MAX_SPECIES)
+                                      ? gear->party[0].species
+                                      : 1u;
+            if (s_selected_species == 0u) {
+                s_selected_species = default_sp;
+            }
+            if ((dex_idx->valid == 0u || dex_det->valid == 0u) && !s_dex_auto_req) {
+                s_dex_auto_req = true;
+                host_dex_request_submit(1, s_selected_species, s_selected_form, now_ms);
+            }
+
+            if (gear->party_count > 0u) {
+                ImGui::TextDisabled("Party Jump:");
+                for (int p = 0; p < (int)gear->party_count && p < POKEBW_GEAR_MAX_PARTY; p++) {
+                    const PokebwGearMon &pm = gear->party[p];
+                    if (pm.is_egg || pm.species == 0u || pm.species > POKEBW_DEX_MAX_SPECIES) {
+                        continue;
+                    }
+                    ImGui::SameLine();
+                    ImGui::PushID(2000 + p);
+                    if (ImGui::SmallButton(pm.species_name[0] != '\0' ? pm.species_name : pm.name)) {
+                        s_selected_species = pm.species;
+                        s_selected_form = 0u;
+                        host_dex_request_submit(dex_idx->valid == 0u ? 1 : 0,
+                                                s_selected_species, 0u, now_ms);
+                    }
+                    ImGui::PopID();
+                }
+            }
+
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputTextWithHint("##dex_search", "Search Pokemon name or # (e.g. Excadrill, 530)",
+                                     s_dex_search, sizeof(s_dex_search));
+
+            if (ImGui::RadioButton("Sort A-Z", s_dex_sort_az == 1)) {
+                s_dex_sort_az = 1;
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Sort #001-649", s_dex_sort_az == 0)) {
+                s_dex_sort_az = 0;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Refresh")) {
+                host_dex_request_submit(1, s_selected_species, s_selected_form, now_ms);
+            }
+
+            static const char *const k_letter_items =
+                "All\0A\0B\0C\0D\0E\0F\0G\0H\0I\0J\0K\0L\0M\0N\0O\0P\0Q\0R\0S\0T\0U\0V\0W\0X\0Y\0Z\0";
+            static const char *const k_owned_items = "All\0Seen+\0Caught\0";
+            ImGui::SetNextItemWidth(110.0f);
+            ImGui::Combo("Letter", &s_dex_letter, k_letter_items);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::Combo("Status", &s_dex_owned_filter, k_owned_items);
+
+            if (host_dex_status()[0] != '\0') {
+                ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.25f, 1.0f), "%s", host_dex_status());
+            }
+
+            if (dex_idx->valid != 0u) {
+                static uint16_t s_filtered[POKEBW_DEX_MAX_SPECIES];
+                int fcount = 0;
+                int num_query = 0;
+                bool is_num_query = true;
+                for (const char *p = s_dex_search; *p != '\0'; p++) {
+                    if (*p == '#') {
+                        continue;
+                    }
+                    if (!std::isdigit(static_cast<unsigned char>(*p))) {
+                        is_num_query = false;
+                        break;
+                    }
+                    num_query = num_query * 10 + (*p - '0');
+                }
+                if (s_dex_search[0] == '\0' || num_query <= 0) {
+                    is_num_query = false;
+                }
+
+                for (int sp = 1; sp <= (int)dex_idx->count && sp <= POKEBW_DEX_MAX_SPECIES; sp++) {
+                    const char *nm = dex_idx->names[sp];
+                    uint8_t ds = dex_idx->dex_state[sp];
+                    if (s_dex_owned_filter == 1 && ds < 1u) {
+                        continue;
+                    }
+                    if (s_dex_owned_filter == 2 && ds < 2u) {
+                        continue;
+                    }
+                    if (s_dex_letter > 0 && nm[0] != '\0') {
+                        char want = static_cast<char>('A' + (s_dex_letter - 1));
+                        char got = static_cast<char>(std::toupper(static_cast<unsigned char>(nm[0])));
+                        if (got != want) {
+                            continue;
+                        }
+                    }
+                    if (s_dex_search[0] != '\0') {
+                        if (is_num_query) {
+                            if (sp != num_query) {
+                                continue;
+                            }
+                        } else if (!dex_icontains(nm, s_dex_search)) {
+                            continue;
+                        }
+                    }
+                    s_filtered[fcount++] = static_cast<uint16_t>(sp);
+                }
+
+                if (s_dex_sort_az != 0 && fcount > 1) {
+                    std::sort(s_filtered, s_filtered + fcount, [dex_idx](uint16_t a, uint16_t b) {
+                        int c = dex_icmp(dex_idx->names[a], dex_idx->names[b]);
+                        return c != 0 ? (c < 0) : (a < b);
+                    });
+                }
+
+                ImGui::TextDisabled("%d matching species", fcount);
+                if (ImGui::BeginChild("##dex_list", ImVec2(-1.0f, 175.0f), ImGuiChildFlags_Borders)) {
+                    ImGuiListClipper clipper;
+                    clipper.Begin(fcount);
+                    while (clipper.Step()) {
+                        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+                            uint16_t sp = s_filtered[i];
+                            uint8_t ds = dex_idx->dex_state[sp];
+                            const char *tag = (ds == 2u) ? "[C]" : (ds == 1u ? "[S]" : "   ");
+                            char row_label[64];
+                            std::snprintf(row_label, sizeof(row_label), "%s #%03u  %s##drow_%u",
+                                          tag, (unsigned)sp, dex_idx->names[sp], (unsigned)sp);
+                            bool is_sel = (sp == s_selected_species);
+                            if (ImGui::Selectable(row_label, is_sel)) {
+                                s_selected_species = sp;
+                                s_selected_form = 0u;
+                                host_dex_request_submit(0, sp, 0u, now_ms);
+                            }
+                        }
+                    }
+                    ImGui::EndChild();
+                }
+            }
+
+            if (dex_det->valid != 0u) {
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                const char *st_label = dex_det->dex_state == 2u
+                                           ? "[Caught]"
+                                           : (dex_det->dex_state == 1u ? "[Seen]" : "[Unseen]");
+                ImVec4 st_col = dex_det->dex_state == 2u
+                                    ? ImVec4(0.35f, 0.90f, 0.45f, 1.0f)
+                                    : (dex_det->dex_state == 1u
+                                           ? ImVec4(0.95f, 0.78f, 0.25f, 1.0f)
+                                           : ImVec4(0.65f, 0.65f, 0.70f, 1.0f));
+                ImGui::Text("#%03u  %s", (unsigned)dex_det->species, dex_det->name);
+                ImGui::SameLine();
+                ImGui::TextColored(st_col, "%s", st_label);
+                if (dex_det->category[0] != '\0') {
+                    ImGui::TextDisabled("%s Pokemon", dex_det->category);
+                }
+
+                draw_dex_type_badge(dex_det->type1);
+                if (dex_det->type2 != dex_det->type1) {
+                    ImGui::SameLine();
+                    draw_dex_type_badge(dex_det->type2);
+                }
+
+                if (dex_det->form_count > 1u) {
+                    ImGui::SameLine();
+                    char flab[24];
+                    std::snprintf(flab, sizeof(flab), "Form %u/%u >",
+                                  (unsigned)dex_det->form + 1u, (unsigned)dex_det->form_count);
+                    if (ImGui::SmallButton(flab)) {
+                        uint8_t next_form = static_cast<uint8_t>((dex_det->form + 1u) % dex_det->form_count);
+                        s_selected_form = next_form;
+                        host_dex_request_submit(0, dex_det->species, next_form, now_ms);
+                    }
+                }
+
+                ImGui::Spacing();
+                ImGui::TextDisabled("Abilities:");
+                bool any_ab = false;
+                for (int a = 0; a < 3; a++) {
+                    if (dex_det->ability_ids[a] == 0u || dex_det->abilities[a][0] == '\0') {
+                        continue;
+                    }
+                    if (a > 0 && dex_det->ability_ids[a] == dex_det->ability_ids[0]) {
+                        continue;
+                    }
+                    if (any_ab) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("|");
+                        ImGui::SameLine();
+                    }
+                    if (a == 2) {
+                        ImGui::TextColored(ImVec4(0.96f, 0.78f, 0.30f, 1.0f),
+                                           "%s [HA]", dex_det->abilities[a]);
+                    } else {
+                        ImGui::Text("%s", dex_det->abilities[a]);
+                    }
+                    any_ab = true;
+                }
+
+                /* Egg Groups, Gender Ratio, Catch Rate */
+                {
+                    char gbuf[40];
+                    format_gender_ratio(dex_det->gender_ratio, gbuf, sizeof(gbuf));
+                    int eg1 = dex_det->egg_group1 < 16u ? (int)dex_det->egg_group1 : 0;
+                    int eg2 = dex_det->egg_group2 < 16u ? (int)dex_det->egg_group2 : 0;
+                    if (eg2 != 0 && eg2 != eg1) {
+                        ImGui::TextDisabled("Egg: %s / %s  |  Cycles: %u  |  Catch: %u  |  %s",
+                                            k_egg_group_names[eg1], k_egg_group_names[eg2],
+                                            (unsigned)dex_det->egg_cycles,
+                                            (unsigned)dex_det->catch_rate, gbuf);
+                    } else {
+                        ImGui::TextDisabled("Egg: %s  |  Cycles: %u  |  Catch: %u  |  %s",
+                                            k_egg_group_names[eg1],
+                                            (unsigned)dex_det->egg_cycles,
+                                            (unsigned)dex_det->catch_rate, gbuf);
+                    }
+                }
+
+                if (ImGui::BeginTabBar("##dex_detail_tabs")) {
+                    if (ImGui::BeginTabItem("Stats & Evo")) {
+                        static const char *const k_stat_names[6] = {
+                            "HP", "Atk", "Def", "SpA", "SpD", "Spe"
+                        };
+                        ImGui::Text("Base Stats  (BST: %u)", (unsigned)dex_det->bst);
+                        for (int s = 0; s < 6; s++) {
+                            uint8_t val = dex_det->base_stats[s];
+                            float frac = std::clamp(static_cast<float>(val) / 200.0f, 0.0f, 1.0f);
+                            ImVec4 col = val >= 110u
+                                             ? ImVec4(0.24f, 0.84f, 0.48f, 1.0f)
+                                             : (val >= 75u
+                                                    ? ImVec4(0.45f, 0.78f, 0.92f, 1.0f)
+                                                    : (val >= 50u
+                                                           ? ImVec4(0.95f, 0.78f, 0.25f, 1.0f)
+                                                           : ImVec4(0.92f, 0.34f, 0.28f, 1.0f)));
+                            ImGui::Text("%-3s %3u", k_stat_names[s], (unsigned)val);
+                            ImGui::SameLine(110.0f);
+                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, col);
+                            ImGui::ProgressBar(frac, ImVec2(-1.0f, 0.0f), "");
+                            ImGui::PopStyleColor();
+                        }
+
+                        ImGui::Spacing();
+                        ImGui::Text("Evolution Family");
+                        if (dex_det->pre_evo_count == 0u && dex_det->evo_count == 0u) {
+                            ImGui::TextDisabled("Does not evolve.");
+                        } else {
+                            bool tfix = dex_det->trade_evo_fix_active != 0u;
+                            for (int i = 0; i < (int)dex_det->pre_evo_count; i++) {
+                                const PokebwDexEvo &e = dex_det->pre_evos[i];
+                                char desc[64];
+                                format_dex_evo_desc(e, tfix, desc, sizeof(desc));
+                                ImGui::TextDisabled("From:");
+                                ImGui::SameLine();
+                                ImGui::PushID(3000 + i);
+                                if (ImGui::SmallButton(e.target_name)) {
+                                    s_selected_species = e.target_species;
+                                    s_selected_form = 0u;
+                                    host_dex_request_submit(0, e.target_species, 0u, now_ms);
+                                }
+                                ImGui::PopID();
+                                ImGui::SameLine();
+                                ImGui::TextWrapped("(%s)", desc);
+                            }
+                            for (int i = 0; i < (int)dex_det->evo_count; i++) {
+                                const PokebwDexEvo &e = dex_det->evos[i];
+                                char desc[64];
+                                format_dex_evo_desc(e, tfix, desc, sizeof(desc));
+                                ImGui::TextDisabled("To:");
+                                ImGui::SameLine();
+                                ImGui::PushID(3100 + i);
+                                if (ImGui::SmallButton(e.target_name)) {
+                                    s_selected_species = e.target_species;
+                                    s_selected_form = 0u;
+                                    host_dex_request_submit(0, e.target_species, 0u, now_ms);
+                                }
+                                ImGui::PopID();
+                                ImGui::SameLine();
+                                ImGui::TextWrapped("(%s)", desc);
+                            }
+                        }
+                        ImGui::EndTabItem();
+                    }
+
+                    if (ImGui::BeginTabItem("Moves")) {
+                        if (ImGui::BeginTabBar("##dex_move_tabs")) {
+                            char lbl[32];
+                            std::snprintf(lbl, sizeof(lbl), "Level (%u)###dlvl", (unsigned)dex_det->lvl_count);
+                            if (ImGui::BeginTabItem(lbl)) {
+                                draw_dex_move_table("##tbl_lvl", dex_det->lvl_moves,
+                                                    (int)dex_det->lvl_count, 0);
+                                ImGui::EndTabItem();
+                            }
+                            std::snprintf(lbl, sizeof(lbl), "TM/HM (%u)###dtm", (unsigned)dex_det->tm_count);
+                            if (ImGui::BeginTabItem(lbl)) {
+                                draw_dex_move_table("##tbl_tm", dex_det->tm_moves,
+                                                    (int)dex_det->tm_count, 1);
+                                ImGui::EndTabItem();
+                            }
+                            std::snprintf(lbl, sizeof(lbl), "Egg (%u)###degg", (unsigned)dex_det->egg_count);
+                            if (ImGui::BeginTabItem(lbl)) {
+                                draw_dex_move_table("##tbl_egg", dex_det->egg_moves,
+                                                    (int)dex_det->egg_count, 2);
+                                ImGui::EndTabItem();
+                            }
+                            std::snprintf(lbl, sizeof(lbl), "Tutor (%u)###dtut", (unsigned)dex_det->tutor_count);
+                            if (ImGui::BeginTabItem(lbl)) {
+                                draw_dex_move_table("##tbl_tut", dex_det->tutor_moves,
+                                                    (int)dex_det->tutor_count, 2);
+                                ImGui::EndTabItem();
+                            }
+                            ImGui::EndTabBar();
+                        }
+                        ImGui::EndTabItem();
+                    }
+
+                    if (ImGui::BeginTabItem("Locations")) {
+                        if (dex_det->loc_catch_em_all_active != 0u) {
+                            ImGui::TextColored(ImVec4(0.40f, 0.88f, 0.96f, 1.0f),
+                                               "Includes Gotta Catch 'Em All! spawns");
+                        }
+                        if (dex_det->loc_count == 0u) {
+                            ImGui::TextDisabled("No wild Unova encounters (evolve, gift, static, or breed).");
+                        } else if (ImGui::BeginTable("##dex_locs", 4,
+                                                     ImGuiTableFlags_RowBg |
+                                                         ImGuiTableFlags_SizingFixedFit |
+                                                         ImGuiTableFlags_ScrollY,
+                                                     ImVec2(0.0f, std::min(280.0f, 36.0f * (dex_det->loc_count + 1))))) {
+                            static const char *const k_short_hab[POKEBW_DEX_HABITATS] = {
+                                "Grass/Cave", "Dark Grass", "Phenomena",
+                                "Surf", "Ripple Surf", "Fish", "Ripple Fish"
+                            };
+                            ImGui::TableSetupColumn("Location", ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("Habitat", ImGuiTableColumnFlags_WidthFixed);
+                            ImGui::TableSetupColumn("Lv / Rate", ImGuiTableColumnFlags_WidthFixed);
+                            ImGui::TableSetupColumn("Season", ImGuiTableColumnFlags_WidthFixed);
+                            ImGui::TableHeadersRow();
+                            for (int l = 0; l < (int)dex_det->loc_count; l++) {
+                                const PokebwDexLocation &loc = dex_det->locations[l];
+                                int hi = loc.habitat < POKEBW_DEX_HABITATS ? (int)loc.habitat : 0;
+                                ImGui::TableNextRow();
+                                ImGui::TableNextColumn();
+                                ImGui::TextUnformatted(loc.place_name);
+                                ImGui::TableNextColumn();
+                                ImGui::TextUnformatted(k_short_hab[hi]);
+                                ImGui::TableNextColumn();
+                                if (loc.min_lv == loc.max_lv) {
+                                    ImGui::Text("Lv.%u (%u%%)", (unsigned)loc.min_lv, (unsigned)loc.chance_pct);
+                                } else {
+                                    ImGui::Text("Lv.%u-%u (%u%%)", (unsigned)loc.min_lv,
+                                                (unsigned)loc.max_lv, (unsigned)loc.chance_pct);
+                                }
+                                ImGui::TableNextColumn();
+                                if ((loc.seasons_mask & 0x0Fu) == 0x0Fu) {
+                                    ImGui::TextDisabled("All");
+                                } else {
+                                    char sbuf[16];
+                                    int at = 0;
+                                    if (loc.seasons_mask & 1u) { sbuf[at++] = 'S'; sbuf[at++] = 'p'; }
+                                    if (loc.seasons_mask & 2u) { if (at) sbuf[at++] = '/'; sbuf[at++] = 'S'; sbuf[at++] = 'u'; }
+                                    if (loc.seasons_mask & 4u) { if (at) sbuf[at++] = '/'; sbuf[at++] = 'A'; sbuf[at++] = 'u'; }
+                                    if (loc.seasons_mask & 8u) { if (at) sbuf[at++] = '/'; sbuf[at++] = 'W'; sbuf[at++] = 'i'; }
+                                    sbuf[at] = '\0';
+                                    ImGui::TextUnformatted(sbuf);
+                                }
+                            }
+                            ImGui::EndTable();
+                        }
+                        if (dex_det->loc_truncated != 0u) {
+                            ImGui::TextDisabled("(Showing first %u locations)",
+                                                (unsigned)POKEBW_DEX_MAX_LOCATIONS);
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
+                }
             }
         }
     }

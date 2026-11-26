@@ -871,6 +871,318 @@ void draw_gear_tab(void)
         }
     }
 
+    if (ImGui::CollapsingHeader("Overhead Area Item Map")) {
+        if (gear->valid == 0u) {
+            ImGui::TextDisabled("Enter the overworld to scan area items and terrain.");
+        } else {
+            static uint64_t s_last_map_poll_ms = 0ull;
+            static uint16_t s_last_map_zone = 0xFFFFu;
+            static bool s_show_collected = false;
+            static bool s_show_warps = true;
+            static float s_map_zoom = 1.4f;
+            static int s_selected_item_idx = -1;
+
+            uint64_t now_ms = SDL_GetTicks();
+            const PokebwMapSnapshot *amap = host_map_get();
+
+            if (amap->valid == 0u || amap->zone_id != gear->zone_id ||
+                s_last_map_zone != gear->zone_id) {
+                s_last_map_zone = static_cast<uint16_t>(gear->zone_id);
+                s_last_map_poll_ms = now_ms;
+                s_selected_item_idx = -1;
+                host_map_request_submit(1, now_ms);
+            } else if (now_ms - s_last_map_poll_ms >= 400ull) {
+                s_last_map_poll_ms = now_ms;
+                host_map_request_submit(0, now_ms);
+            }
+
+            if (amap->valid == 0u) {
+                ImGui::TextDisabled("Scanning map terrain & events...");
+            } else {
+                ImGui::Text("%s  (%d, %d)", amap->zone_name,
+                            (int)amap->player_gx, (int)amap->player_gz);
+                if (amap->uncollected_balls == 0u && amap->uncollected_hidden == 0u) {
+                    ImGui::TextColored(ImVec4(0.35f, 0.90f, 0.45f, 1.0f),
+                                       "All Area Items Collected! (%u checked)",
+                                       (unsigned)amap->item_count);
+                } else {
+                    ImGui::TextColored(ImVec4(0.98f, 0.42f, 0.36f, 1.0f),
+                                       "%u Item Ball%s",
+                                       (unsigned)amap->uncollected_balls,
+                                       amap->uncollected_balls == 1u ? "" : "s");
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("|");
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.98f, 0.84f, 0.24f, 1.0f),
+                                       "%u Hidden Item%s remaining",
+                                       (unsigned)amap->uncollected_hidden,
+                                       amap->uncollected_hidden == 1u ? "" : "s");
+                }
+
+                ImGui::Checkbox("Show Collected", &s_show_collected);
+                ImGui::SameLine();
+                ImGui::Checkbox("Exits", &s_show_warps);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Rescan")) {
+                    s_last_map_poll_ms = now_ms;
+                    host_map_request_submit(1, now_ms);
+                }
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::SliderFloat("##map_zoom", &s_map_zoom, 1.0f, 2.5f, "Zoom %.1fx");
+
+                /* Top-down overhead map canvas centered on player */
+                float avail_w = ImGui::GetContentRegionAvail().x;
+                float canvas_w = std::max(220.0f, avail_w);
+                float canvas_h = std::clamp(canvas_w * 0.72f, 210.0f, 320.0f);
+
+                ImGui::InvisibleButton("##area_map_canvas", ImVec2(canvas_w, canvas_h));
+                ImVec2 p0 = ImGui::GetItemRectMin();
+                ImVec2 p1 = ImGui::GetItemRectMax();
+                ImVec2 center((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f);
+                float tile_px = 7.0f * s_map_zoom;
+
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(p0, p1, IM_COL32(16, 18, 24, 255), 6.0f);
+                dl->PushClipRect(p0, p1, true);
+
+                static const ImU32 k_tile_cols[8] = {
+                    IM_COL32(18, 20, 26, 255),   /* VOID */
+                    IM_COL32(50, 54, 66, 255),   /* BLOCKED */
+                    IM_COL32(94, 102, 114, 255), /* WALKABLE */
+                    IM_COL32(58, 134, 68, 255),  /* GRASS */
+                    IM_COL32(34, 92, 46, 255),   /* DARK_GRASS */
+                    IM_COL32(46, 108, 188, 255), /* WATER */
+                    IM_COL32(168, 152, 112, 255),/* SAND_SNOW */
+                    IM_COL32(128, 112, 82, 255)  /* LEDGE */
+                };
+
+                for (int tz = 0; tz < (int)amap->grid_h; tz++) {
+                    int world_z = (int)amap->origin_z + tz;
+                    float y0 = center.y + (static_cast<float>(world_z - (int)amap->player_gz) - 0.5f) * tile_px;
+                    float y1 = y0 + tile_px;
+                    if (y1 < p0.y || y0 > p1.y) {
+                        continue;
+                    }
+                    for (int tx = 0; tx < (int)amap->grid_w; tx++) {
+                        uint8_t t = amap->tiles[tz * POKEBW_MAP_MAX_W + tx];
+                        if (t == POKEBW_TILE_VOID) {
+                            continue;
+                        }
+                        int world_x = (int)amap->origin_x + tx;
+                        float x0 = center.x + (static_cast<float>(world_x - (int)amap->player_gx) - 0.5f) * tile_px;
+                        float x1 = x0 + tile_px;
+                        if (x1 < p0.x || x0 > p1.x) {
+                            continue;
+                        }
+                        ImU32 col = k_tile_cols[t < 8u ? t : 0];
+                        dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1 + 0.5f, y1 + 0.5f), col);
+                    }
+                }
+
+                /* Warps / Exits */
+                if (s_show_warps) {
+                    for (int w = 0; w < (int)amap->warp_count && w < POKEBW_MAP_MAX_WARPS; w++) {
+                        const PokebwMapWarp &wp = amap->warps[w];
+                        float wx0 = center.x + (static_cast<float>((int)wp.gx - (int)amap->player_gx) - 0.5f) * tile_px;
+                        float wy0 = center.y + (static_cast<float>((int)wp.gz - (int)amap->player_gz) - 0.5f) * tile_px;
+                        float wx1 = wx0 + static_cast<float>(std::max<int>(1, (int)wp.size_x)) * tile_px;
+                        float wy1 = wy0 + static_cast<float>(std::max<int>(1, (int)wp.size_z)) * tile_px;
+                        dl->AddRectFilled(ImVec2(wx0, wy0), ImVec2(wx1, wy1), IM_COL32(55, 210, 235, 95));
+                        dl->AddRect(ImVec2(wx0, wy0), ImVec2(wx1, wy1), IM_COL32(110, 235, 255, 220), 0.0f, 0, 1.5f);
+                    }
+                }
+
+                /* Guide line to selected item */
+                if (s_selected_item_idx >= 0 && s_selected_item_idx < (int)amap->item_count) {
+                    const PokebwMapItem &sel = amap->items[s_selected_item_idx];
+                    float sx = center.x + static_cast<float>((int)sel.gx - (int)amap->player_gx) * tile_px;
+                    float sy = center.y + static_cast<float>((int)sel.gz - (int)amap->player_gz) * tile_px;
+                    dl->AddLine(center, ImVec2(sx, sy), IM_COL32(120, 245, 255, 190), 2.0f);
+                }
+
+                /* Item Balls & Hidden Dowsing Items */
+                for (int i = 0; i < (int)amap->item_count && i < POKEBW_MAP_MAX_ITEMS; i++) {
+                    const PokebwMapItem &it = amap->items[i];
+                    if (it.collected != 0u && !s_show_collected) {
+                        continue;
+                    }
+                    float ix = center.x + static_cast<float>((int)it.gx - (int)amap->player_gx) * tile_px;
+                    float iy = center.y + static_cast<float>((int)it.gz - (int)amap->player_gz) * tile_px;
+                    bool in_view = (ix >= p0.x + 4.0f && ix <= p1.x - 4.0f &&
+                                    iy >= p0.y + 4.0f && iy <= p1.y - 4.0f);
+
+                    if (!in_view) {
+                        if (it.collected == 0u) {
+                            float dx = ix - center.x;
+                            float dy = iy - center.y;
+                            float half_w = (p1.x - p0.x) * 0.5f - 8.0f;
+                            float half_h = (p1.y - p0.y) * 0.5f - 8.0f;
+                            float scale = std::min(dx != 0.0f ? half_w / std::fabs(dx) : 1e6f,
+                                                   dy != 0.0f ? half_h / std::fabs(dy) : 1e6f);
+                            if (scale < 1.0f) {
+                                float ex = center.x + dx * scale;
+                                float ey = center.y + dy * scale;
+                                float len = std::sqrt(dx * dx + dy * dy);
+                                float ux = (len > 0.01f) ? (dx / len) : 0.0f;
+                                float uy = (len > 0.01f) ? (dy / len) : -1.0f;
+                                ImVec2 tip(ex + ux * 6.0f, ey + uy * 6.0f);
+                                ImVec2 b1(ex - ux * 5.0f - uy * 4.5f, ey - uy * 5.0f + ux * 4.5f);
+                                ImVec2 b2(ex - ux * 5.0f + uy * 4.5f, ey - uy * 5.0f - ux * 4.5f);
+                                ImU32 arrow_col = (it.kind == POKEBW_ITEM_BALL)
+                                                      ? IM_COL32(255, 85, 75, 240)
+                                                      : IM_COL32(255, 220, 60, 240);
+                                dl->AddTriangleFilled(tip, b1, b2, arrow_col);
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (it.collected != 0u) {
+                        dl->AddCircleFilled(ImVec2(ix, iy), 4.0f, IM_COL32(150, 155, 165, 130));
+                        dl->AddCircle(ImVec2(ix, iy), 4.5f, IM_COL32(95, 100, 110, 170), 0, 1.2f);
+                    } else if (it.kind == POKEBW_ITEM_BALL) {
+                        float r = std::clamp(tile_px * 0.52f, 5.5f, 9.0f);
+                        dl->PathArcTo(ImVec2(ix, iy), r, -3.1415926f, 0.0f, 12);
+                        dl->PathFillConvex(IM_COL32(235, 55, 50, 255));
+                        dl->PathArcTo(ImVec2(ix, iy), r, 0.0f, 3.1415926f, 12);
+                        dl->PathFillConvex(IM_COL32(245, 245, 245, 255));
+                        dl->AddCircle(ImVec2(ix, iy), r, IM_COL32(20, 20, 24, 255), 0, 1.5f);
+                        dl->AddLine(ImVec2(ix - r, iy), ImVec2(ix + r, iy), IM_COL32(20, 20, 24, 255), 1.6f);
+                        dl->AddCircleFilled(ImVec2(ix, iy), r * 0.30f, IM_COL32(255, 255, 255, 255));
+                    } else {
+                        float r = std::clamp(tile_px * 0.56f, 6.0f, 9.5f);
+                        ImVec2 top(ix, iy - r), right(ix + r, iy), bot(ix, iy + r), left(ix - r, iy);
+                        dl->AddQuadFilled(top, right, bot, left, IM_COL32(255, 214, 48, 255));
+                        dl->AddQuad(top, right, bot, left, IM_COL32(30, 24, 8, 255), 1.5f);
+                        if (it.kind == POKEBW_ITEM_HIDDEN_DAILY) {
+                            dl->AddCircle(ImVec2(ix, iy), r + 3.0f, IM_COL32(205, 120, 255, 230), 0, 1.8f);
+                        }
+                    }
+
+                    if (i == s_selected_item_idx) {
+                        dl->AddCircle(ImVec2(ix, iy), 11.5f, IM_COL32(110, 245, 255, 255), 0, 2.2f);
+                    }
+                }
+
+                /* Player chevron facing player_dir (0=N, 1=S, 2=W, 3=E) */
+                {
+                    static const float k_dir_dx[4] = { 0.0f, 0.0f, -1.0f, 1.0f };
+                    static const float k_dir_dy[4] = { -1.0f, 1.0f, 0.0f, 0.0f };
+                    int d = amap->player_dir < 4u ? (int)amap->player_dir : 1;
+                    float ux = k_dir_dx[d], uy = k_dir_dy[d];
+                    float pr = 6.5f;
+                    ImVec2 tip(center.x + ux * (pr + 2.0f), center.y + uy * (pr + 2.0f));
+                    ImVec2 b1(center.x - ux * pr - uy * pr * 0.8f, center.y - uy * pr + ux * pr * 0.8f);
+                    ImVec2 b2(center.x - ux * pr + uy * pr * 0.8f, center.y - uy * pr - ux * pr * 0.8f);
+                    dl->AddTriangleFilled(tip, b1, b2, IM_COL32(255, 255, 255, 255));
+                    dl->AddTriangle(tip, b1, b2, IM_COL32(15, 22, 34, 255), 1.6f);
+                }
+
+                dl->PopClipRect();
+                dl->AddRect(p0, p1, IM_COL32(75, 85, 105, 255), 6.0f, 0, 1.2f);
+
+                /* Legend */
+                ImGui::TextDisabled("Legend: White=You  RedBall=Item Ball  Gold=Hidden  Purple=Daily  Cyan=Exit");
+
+                /* Sorted item list below map (nearest uncollected first) */
+                if (amap->item_count == 0u) {
+                    ImGui::TextDisabled("No item balls or hidden items in this zone.");
+                } else {
+                    int order[POKEBW_MAP_MAX_ITEMS];
+                    int ord_n = 0;
+                    for (int i = 0; i < (int)amap->item_count && i < POKEBW_MAP_MAX_ITEMS; i++) {
+                        if (amap->items[i].collected != 0u && !s_show_collected) {
+                            continue;
+                        }
+                        order[ord_n++] = i;
+                    }
+                    std::sort(order, order + ord_n, [amap](int a, int b) {
+                        const PokebwMapItem &ia = amap->items[a];
+                        const PokebwMapItem &ib = amap->items[b];
+                        if (ia.collected != ib.collected) {
+                            return ia.collected < ib.collected;
+                        }
+                        int dax = (int)ia.gx - (int)amap->player_gx;
+                        int daz = (int)ia.gz - (int)amap->player_gz;
+                        int dbx = (int)ib.gx - (int)amap->player_gx;
+                        int dbz = (int)ib.gz - (int)amap->player_gz;
+                        int da = dax * dax + daz * daz;
+                        int db = dbx * dbx + dbz * dbz;
+                        return da != db ? (da < db) : (a < b);
+                    });
+
+                    if (ord_n == 0) {
+                        ImGui::TextDisabled("Enable \"Show Collected\" to view picked-up items.");
+                    } else if (ImGui::BeginTable("##area_item_list", 4,
+                                                 ImGuiTableFlags_RowBg |
+                                                     ImGuiTableFlags_SizingFixedFit |
+                                                     ImGuiTableFlags_ScrollY,
+                                                 ImVec2(0.0f, std::min(220.0f, 34.0f * (ord_n + 1))))) {
+                        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+                        ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("Offset", ImGuiTableColumnFlags_WidthFixed);
+                        ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed);
+                        ImGui::TableHeadersRow();
+                        for (int k = 0; k < ord_n; k++) {
+                            int idx = order[k];
+                            const PokebwMapItem &it = amap->items[idx];
+                            int dx = (int)it.gx - (int)amap->player_gx;
+                            int dz = (int)it.gz - (int)amap->player_gz;
+                            char off_buf[24];
+                            if (dx == 0 && dz == 0) {
+                                std::snprintf(off_buf, sizeof(off_buf), "Here");
+                            } else {
+                                int ax = dx < 0 ? -dx : dx;
+                                int az = dz < 0 ? -dz : dz;
+                                if (ax > 0 && az > 0) {
+                                    std::snprintf(off_buf, sizeof(off_buf), "%d%c %d%c",
+                                                  az, dz < 0 ? 'N' : 'S', ax, dx < 0 ? 'W' : 'E');
+                                } else if (az > 0) {
+                                    std::snprintf(off_buf, sizeof(off_buf), "%d%c",
+                                                  az, dz < 0 ? 'N' : 'S');
+                                } else {
+                                    std::snprintf(off_buf, sizeof(off_buf), "%d%c",
+                                                  ax, dx < 0 ? 'W' : 'E');
+                                }
+                            }
+
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn();
+                            if (it.kind == POKEBW_ITEM_BALL) {
+                                ImGui::TextColored(ImVec4(0.98f, 0.42f, 0.36f, 1.0f), "[Ball]");
+                            } else if (it.kind == POKEBW_ITEM_HIDDEN_DAILY) {
+                                ImGui::TextColored(ImVec4(0.84f, 0.58f, 0.98f, 1.0f), "[Daily]");
+                            } else {
+                                ImGui::TextColored(ImVec4(0.98f, 0.84f, 0.24f, 1.0f), "[Hidden]");
+                            }
+                            ImGui::TableNextColumn();
+                            char lbl[48];
+                            if (it.qty > 1u) {
+                                std::snprintf(lbl, sizeof(lbl), "%s x%u##ait_%d",
+                                              it.name, (unsigned)it.qty, idx);
+                            } else {
+                                std::snprintf(lbl, sizeof(lbl), "%s##ait_%d", it.name, idx);
+                            }
+                            if (ImGui::Selectable(lbl, s_selected_item_idx == idx,
+                                                  ImGuiSelectableFlags_SpanAllColumns)) {
+                                s_selected_item_idx = (s_selected_item_idx == idx) ? -1 : idx;
+                            }
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted(off_buf);
+                            ImGui::TableNextColumn();
+                            if (it.collected != 0u) {
+                                ImGui::TextDisabled("Got");
+                            } else {
+                                ImGui::TextColored(ImVec4(0.35f, 0.90f, 0.45f, 1.0f), "Left");
+                            }
+                        }
+                        ImGui::EndTable();
+                    }
+                }
+            }
+        }
+    }
+
     if (ImGui::CollapsingHeader("PC Box & Bag Auto-Sorter")) {
         if (gear->valid == 0u) {
             ImGui::TextDisabled("Enter the overworld to sort PC Boxes or Bag pockets.");

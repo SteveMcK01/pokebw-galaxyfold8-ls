@@ -89,6 +89,8 @@ BW_WASM_IMPORT(gear_push) void bw_host_gear_push(const void *data, unsigned size
 BW_WASM_IMPORT(dex_request_poll) unsigned bw_host_dex_request_poll(void);
 BW_WASM_IMPORT(dex_index_push) void bw_host_dex_index_push(const void *data, unsigned size);
 BW_WASM_IMPORT(dex_detail_push) void bw_host_dex_detail_push(const void *data, unsigned size);
+BW_WASM_IMPORT(map_request_poll) unsigned bw_host_map_request_poll(void);
+BW_WASM_IMPORT(map_push) void bw_host_map_push(const void *data, unsigned size);
 
 /* TCP sockets for the relay (sdk/mod_net.c): the host's own, all
  * non-blocking, named by small numbers.  sock_connect: 0 connected, 1 in

@@ -45,6 +45,9 @@ static unsigned long long g_dex_req_ms = 0;
 static PokebwDexIndex g_dex_index;
 static PokebwDexDetail g_dex_detail;
 static char g_dex_status[160] = "";
+static unsigned g_map_req_mode = 0u;
+static unsigned long long g_map_req_ms = 0;
+static PokebwMapSnapshot g_map_snap;
 
 static void apply_control_defaults(PokebwSettings *s)
 {
@@ -937,4 +940,43 @@ const PokebwDexDetail *host_dex_detail_get(void)
 const char *host_dex_status(void)
 {
     return g_dex_status;
+}
+
+void host_map_request_submit(int force_full, unsigned long long now_ms)
+{
+    unsigned mode = force_full ? 2u : 1u;
+
+    g_map_req_ms = now_ms;
+    if (mode > g_map_req_mode) {
+        g_map_req_mode = mode;
+    }
+}
+
+unsigned host_map_request_poll(unsigned long long now_ms)
+{
+    unsigned mode;
+
+    if (g_map_req_mode == 0u) {
+        return 0u;
+    }
+    if (now_ms > g_map_req_ms && (now_ms - g_map_req_ms) > 5000ull) {
+        g_map_req_mode = 0u;
+        return 0u;
+    }
+    mode = g_map_req_mode;
+    g_map_req_mode = 0u;
+    return mode;
+}
+
+void host_map_update(const PokebwMapSnapshot *snap)
+{
+    if (snap == NULL) {
+        return;
+    }
+    g_map_snap = *snap;
+}
+
+const PokebwMapSnapshot *host_map_get(void)
+{
+    return &g_map_snap;
 }

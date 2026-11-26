@@ -3438,7 +3438,8 @@ if(NOT _eidos_ovls STREQUAL "")
             ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_hm_shortcut.c
             ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_sorter.c
             ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_daycare_preview.c
-            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_dex_lookup.c)
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_dex_lookup.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/pokebw_area_map.c)
         target_link_options(eidos_boot PRIVATE
             "-Wl,--wrap=ov010_FLDMMDL_UpdateSysProc"
             "-Wl,--wrap=ov021_FIELDMAP_DeleteMmdlSys"

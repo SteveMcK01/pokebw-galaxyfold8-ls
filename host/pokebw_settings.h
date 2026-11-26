@@ -8,6 +8,7 @@
 
 #include "pokebw_gear_state.h"
 #include "pokebw_dex_state.h"
+#include "pokebw_map_state.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -116,6 +117,12 @@ const PokebwDexIndex *host_dex_index_get(void);
 void host_dex_detail_update(const PokebwDexDetail *detail);
 const PokebwDexDetail *host_dex_detail_get(void);
 const char *host_dex_status(void);
+
+/* Phase 4.9: Overhead Area Item Map cache & requests (host <-> wasm). */
+void host_map_request_submit(int force_full, unsigned long long now_ms);
+unsigned host_map_request_poll(unsigned long long now_ms);
+void host_map_update(const PokebwMapSnapshot *snap);
+const PokebwMapSnapshot *host_map_get(void);
 
 #ifdef __cplusplus
 }
